@@ -32,7 +32,7 @@ spec:
            value: "0"
          - name: RCUTILS_LOGGING_USE_STDOUT
            value: "1"
-         - name: FASTDDS_DISCOVERY_SERVER
+         - name: ROS_DISCOVERY_SERVER
            value: "fastdds-discovery-server.default.svc.cluster.local:11811"
          volumeMounts: []
          
@@ -54,8 +54,8 @@ spec:
            periodSeconds: 30
            timeoutSeconds: 5
            failureThreshold: 3
-       
-       - name: listener
+         
+         - name: listener
          image: arm64v8/ros:humble
          imagePullPolicy: IfNotPresent
          command: ["/bin/bash"]
@@ -68,7 +68,7 @@ spec:
            value: "0"
          - name: RCUTILS_LOGGING_USE_STDOUT
            value: "1"
-         - name: FASTDDS_DISCOVERY_SERVER
+         - name: ROS_DISCOVERY_SERVER
            value: "fastdds-discovery-server.default.svc.cluster.local:11811"
          volumeMounts: []
          
