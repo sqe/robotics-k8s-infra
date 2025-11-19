@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: talker
-        image: ros:humble-ros-core
+        image: ros:humble
         imagePullPolicy: IfNotPresent
         command: ["/bin/bash"]
         args: ["-c", "source /opt/ros/humble/setup.bash && ros2 run demo_nodes_cpp talker"]
