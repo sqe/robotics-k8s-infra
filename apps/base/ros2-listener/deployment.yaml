@@ -18,6 +18,35 @@ spec:
       dnsPolicy: ClusterFirst
       nodeSelector:
         kubernetes.io/hostname: robotics-dev-worker4
+      initContainers:
+      - name: generate-dds-config
+        image: busybox:latest
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for ros2-talker service..."
+          until nslookup ros2-talker.default.svc.cluster.local; do
+            echo "Service not ready, retrying..."
+            sleep 2
+          done
+          TALKER_IP=$(nslookup ros2-talker.default.svc.cluster.local | grep -A5 "Name:" | tail -1 | awk '{print $NF}')
+          echo "Discovered talker IP: $TALKER_IP"
+          cat > /tmp/cyclonedds.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8" ?>
+          <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+            <Domain id="any">
+              <General>
+                <NetworkInterfaceAddress>0.0.0.0</NetworkInterfaceAddress>
+                <AllowMulticast>false</AllowMulticast>
+                <Peer address="$TALKER_IP"/>
+              </General>
+            </Domain>
+          </CycloneDDS>
+          EOF
+        volumeMounts:
+        - name: dds-config
+          mountPath: /tmp
       containers:
       - name: listener
         image: arm64v8/ros:humble
@@ -35,9 +64,8 @@ spec:
         - name: CYCLONEDDS_URI
           value: "file:///etc/ros2/cyclonedds.xml"
         volumeMounts:
-        - name: dds-config
+        - name: dds-config-init
           mountPath: /etc/ros2
-          readOnly: true
         
         resources:
           requests:
@@ -60,8 +88,9 @@ spec:
       
       volumes:
       - name: dds-config
-        configMap:
-          name: cyclonedds-config
+        emptyDir: {}
+      - name: dds-config-init
+        emptyDir: {}
       
       affinity:
         # Force listener and talker on same node for ROS 2 discovery
