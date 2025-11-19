@@ -1,0 +1,13 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+terraform.tfvars.local
+crash.log
+
+# Local
+.DS_Store
+*.swp
+kubeconfig
+/tmp

@@ -1,0 +1,21 @@
+# Tigera Operator values for Calico
+apiServer:
+  enabled: true
+
+calicoctl:
+  enabled: false
+
+calicocrds:
+  enabled: true
+
+# For kind clusters, we need to adjust installation
+installation:
+  calicoNetwork:
+    bgp: Disabled
+    hostPorts: Enabled
+    ipPools:
+    - blockSize: 26
+      cidr: 10.244.0.0/16
+      encapsulation: VXLAN
+      natOutgoing: Enabled
+      nodeSelector: all()

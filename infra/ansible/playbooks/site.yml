@@ -1,0 +1,14 @@
+---
+- name: Deploy Kubernetes cluster
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Include provisioning playbooks
+      include_tasks: "{{ item }}"
+      loop:
+        - provision-infrastructure.yml
+        - provision-control-plane.yml
+        - provision-worker-nodes.yml
+        - deploy-cni.yml
+        - deploy-kubeedge.yml
+        - deploy-ros2.yml

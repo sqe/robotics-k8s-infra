@@ -1,0 +1,47 @@
+---
+all:
+  vars:
+    ansible_user: ubuntu
+    ansible_ssh_private_key_file: ~/.ssh/id_rsa
+    ansible_python_interpreter: /usr/bin/python3
+
+  children:
+    k8s_control_plane:
+      hosts:
+        k8s-cp-1:
+          ansible_host: "{{ control_plane_ips[0] | default('10.0.0.10') }}"
+          private_ip: "{{ control_plane_private_ips[0] | default('10.0.0.10') }}"
+        k8s-cp-2:
+          ansible_host: "{{ control_plane_ips[1] | default('10.0.0.11') }}"
+          private_ip: "{{ control_plane_private_ips[1] | default('10.0.0.11') }}"
+        k8s-cp-3:
+          ansible_host: "{{ control_plane_ips[2] | default('10.0.0.12') }}"
+          private_ip: "{{ control_plane_private_ips[2] | default('10.0.0.12') }}"
+
+    k8s_workers:
+      hosts:
+        k8s-worker-1:
+          ansible_host: "{{ worker_ips[0] | default('10.0.0.50') }}"
+          private_ip: "{{ worker_ips[0] | default('10.0.0.50') }}"
+        k8s-worker-2:
+          ansible_host: "{{ worker_ips[1] | default('10.0.0.51') }}"
+          private_ip: "{{ worker_ips[1] | default('10.0.0.51') }}"
+        k8s-worker-3:
+          ansible_host: "{{ worker_ips[2] | default('10.0.0.52') }}"
+          private_ip: "{{ worker_ips[2] | default('10.0.0.52') }}"
+
+    k8s_cluster:
+      children:
+        - k8s_control_plane
+        - k8s_workers
+
+    kubeedge_gateways:
+      hosts:
+        kubeedge-gw-1:
+          ansible_host: "{{ kubeedge_gateway_ip | default('10.0.0.100') }}"
+
+    edge_nodes:
+      hosts:
+        edge-1:
+          ansible_host: edge-1.local
+          ansible_port: 22

@@ -1,0 +1,165 @@
+---
+- name: Provision Kubernetes Worker Nodes
+  hosts: k8s_workers
+  become: yes
+  vars:
+    kubernetes_version: "1.28"
+    kubelet_version: "1.28.0-00"
+    kubeadm_version: "1.28.0-00"
+
+  tasks:
+    - name: Update system packages
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - containerd.io
+          - jq
+        state: present
+
+    - name: Install Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=arm64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker and containerd
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - docker-compose-plugin
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    - name: Configure containerd
+      shell: |
+        mkdir -p /etc/containerd
+        containerd config default | tee /etc/containerd/config.toml > /dev/null
+
+    - name: Enable systemd cgroup driver for containerd
+      lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: 'SystemdCgroup = false'
+        line: '            SystemdCgroup = true'
+
+    - name: Restart containerd
+      systemd:
+        name: containerd
+        daemon_reload: yes
+        state: restarted
+
+    - name: Add Kubernetes GPG key
+      apt_key:
+        url: https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/Release.key
+        state: present
+
+    - name: Add Kubernetes repository
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb /"
+        state: present
+
+    - name: Install Kubernetes kubelet and kubeadm
+      apt:
+        name:
+          - "kubeadm={{ kubeadm_version }}"
+          - "kubelet={{ kubelet_version }}"
+        state: present
+        update_cache: yes
+
+    - name: Hold Kubernetes packages
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubeadm
+        - kubelet
+
+    - name: Configure kubelet cgroup driver
+      lineinfile:
+        path: /etc/default/kubelet
+        create: yes
+        line: 'KUBELET_EXTRA_ARGS=--cgroup-driver=systemd'
+
+    - name: Enable and start kubelet
+      systemd:
+        name: kubelet
+        daemon_reload: yes
+        enabled: yes
+        state: started
+
+    - name: Disable swap
+      command: swapoff -a
+
+    - name: Comment out swap in fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^\s*[^\s]+\s+none\s+swap'
+        state: absent
+
+    - name: Load required kernel modules
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Configure sysctl for Kubernetes
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_set: yes
+        reload: yes
+      loop:
+        - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+        - { key: "net.bridge.bridge-nf-call-iptables", value: "1" }
+        - { key: "net.ipv4.ip_forward", value: "1" }
+
+    - name: Wait for join command from control plane
+      pause:
+        prompt: "Enter the kubeadm join command from control plane"
+      register: join_command_input
+      when: false  # This will be provided by Terraform output
+
+    - name: Join worker node to cluster
+      shell: |
+        {{ hostvars['k8s-cp-1']['join_command'].stdout }}
+      register: kubeadm_join
+      ignore_errors: yes
+
+    - name: Label worker nodes
+      command: |
+        kubectl label node {{ inventory_hostname }} \
+          node-role.kubernetes.io/worker=true \
+          workload-type=robotics
+      delegate_to: "{{ groups['k8s_control_plane'][0] }}"
+      become: no
+      when: kubeadm_join is changed
+
+    - name: Configure node resources
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { key: "vm.max_map_count", value: "262144" }
+        - { key: "net.core.somaxconn", value: "65535" }
+        - { key: "net.ipv4.tcp_max_syn_backlog", value: "65535" }

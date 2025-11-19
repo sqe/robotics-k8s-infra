@@ -1,0 +1,106 @@
+---
+# Example: Deploy monitoring stack via ArgoCD
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/prometheus-community/helm-charts
+    targetRevision: "*"
+    helm:
+      releaseName: prometheus
+      chart: kube-prometheus-stack
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Robotics Platform - tracks this git repo
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: robotics-platform
+  namespace: argocd
+spec:
+  project: default
+  
+  # Git source - update with your actual repo
+  source:
+    repoURL: https://github.com/YOUR_ORG/tf.git
+    targetRevision: main
+    path: apps/overlays/development/robotics-platform
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  
+  # Auto-sync: Any git change auto-deploys
+  syncPolicy:
+    automated:
+      prune: true      # Delete removed resources
+      selfHeal: true   # Redeploy if manual changes detected
+    syncOptions:
+    - CreateNamespace=true
+    # Auto-prune resources (dangerous in production)
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Example: Deploy ArgoCD ApplicationSet for multiple environments
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: robotics-apps
+  namespace: argocd
+spec:
+  generators:
+  # Generate apps for each environment
+  - list:
+      elements:
+      - cluster: development
+        namespace: default
+      - cluster: staging
+        namespace: staging
+      - cluster: production
+        namespace: production
+  
+  template:
+    metadata:
+      name: 'robotics-{{cluster}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/YOUR_ORG/tf.git
+        targetRevision: main
+        path: 'apps/overlays/{{cluster}}/robotics-platform'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true

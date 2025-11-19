@@ -1,0 +1,282 @@
+---
+- name: Deploy ROS 2 on Kubernetes
+  hosts: k8s_control_plane[0]
+  become: no
+  vars:
+    ros2_namespace: "ros2-workloads"
+    ros2_image: "osrf/ros:humble-desktop"
+    helm_chart_repo: "https://github.com/yourusername/ros2-helm-charts"
+
+  tasks:
+    - name: Create ROS 2 namespace
+      shell: |
+        kubectl create namespace {{ ros2_namespace }} || true
+
+    - name: Create ROS 2 config directory
+      file:
+        path: /tmp/ros2-k8s
+        state: directory
+
+    - name: Create ROS 2 values file
+      copy:
+        content: |
+          replicaCount: 1
+          
+          image:
+            repository: {{ ros2_image }}
+            pullPolicy: IfNotPresent
+            tag: ""
+          
+          imagePullSecrets: []
+          nameOverride: ""
+          fullnameOverride: ""
+          
+          serviceAccount:
+            create: true
+            annotations: {}
+            name: ""
+          
+          podAnnotations: {}
+          
+          podSecurityContext: {}
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: false
+            capabilities:
+              add:
+                - NET_BIND_SERVICE
+              drop:
+                - ALL
+          
+          service:
+            type: ClusterIP
+            port: 7400
+            protocol: UDP
+          
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          
+          autoscaling:
+            enabled: false
+            minReplicas: 1
+            maxReplicas: 5
+            targetCPUUtilizationPercentage: 70
+            targetMemoryUtilizationPercentage: 80
+          
+          env:
+            ROS_DOMAIN_ID: "0"
+            ROS_LOCALHOST_ONLY: "0"
+            AMENT_PREFIX_PATH: "/opt/ros/humble"
+            COLCON_PREFIX_PATH: "/opt/ros/humble"
+          
+          nodeSelector:
+            workload-type: robotics
+          
+          tolerations: []
+          
+          affinity: {}
+        dest: /tmp/ros2-k8s/values.yaml
+
+    - name: Create Helm chart for ROS 2
+      copy:
+        content: |
+          apiVersion: v2
+          name: ros2-workload
+          description: A Helm chart for deploying ROS 2 on Kubernetes
+          type: application
+          version: 0.1.0
+          appVersion: "humble"
+          keywords:
+            - ros2
+            - robotics
+            - kubernetes
+          maintainers:
+            - name: Your Name
+              email: your.email@example.com
+        dest: /tmp/ros2-k8s/Chart.yaml
+
+    - name: Create ROS 2 deployment manifest
+      copy:
+        content: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: ros2-node
+            namespace: {{ ros2_namespace }}
+            labels:
+              app: ros2-workload
+              framework: ros2
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: ros2-workload
+            template:
+              metadata:
+                labels:
+                  app: ros2-workload
+              spec:
+                serviceAccountName: ros2-workload
+                containers:
+                - name: ros2-node
+                  image: {{ ros2_image }}
+                  imagePullPolicy: IfNotPresent
+                  command:
+                    - /bin/bash
+                    - -c
+                    - |
+                      source /opt/ros/humble/setup.bash
+                      sleep infinity
+                  env:
+                  - name: ROS_DOMAIN_ID
+                    value: "0"
+                  - name: ROS_LOCALHOST_ONLY
+                    value: "0"
+                  - name: AMENT_PREFIX_PATH
+                    value: /opt/ros/humble
+                  - name: COLCON_PREFIX_PATH
+                    value: /opt/ros/humble
+                  ports:
+                  - name: dds-multicast
+                    containerPort: 7400
+                    protocol: UDP
+                  - name: dds-unicast
+                    containerPort: 7401
+                    protocol: UDP
+                  resources:
+                    requests:
+                      cpu: 500m
+                      memory: 512Mi
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                  livenessProbe:
+                    exec:
+                      command:
+                      - /bin/bash
+                      - -c
+                      - ps aux | grep -v grep | grep bash
+                    initialDelaySeconds: 30
+                    periodSeconds: 10
+                  readinessProbe:
+                    exec:
+                      command:
+                      - /bin/bash
+                      - -c
+                      - "true"
+                    initialDelaySeconds: 10
+                    periodSeconds: 5
+                  securityContext:
+                    allowPrivilegeEscalation: false
+                    readOnlyRootFilesystem: false
+                    runAsNonRoot: false
+                    capabilities:
+                      add:
+                      - NET_BIND_SERVICE
+                      drop:
+                      - ALL
+                affinity:
+                  podAntiAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                    - weight: 100
+                      podAffinityTerm:
+                        labelSelector:
+                          matchExpressions:
+                          - key: app
+                            operator: In
+                            values:
+                            - ros2-workload
+                        topologyKey: kubernetes.io/hostname
+                restartPolicy: Always
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: ros2-service
+            namespace: {{ ros2_namespace }}
+            labels:
+              app: ros2-workload
+          spec:
+            selector:
+              app: ros2-workload
+            type: ClusterIP
+            ports:
+            - name: dds-multicast
+              port: 7400
+              protocol: UDP
+              targetPort: dds-multicast
+            - name: dds-unicast
+              port: 7401
+              protocol: UDP
+              targetPort: 7401
+          ---
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: ros2-workload
+            namespace: {{ ros2_namespace }}
+        dest: /tmp/ros2-k8s/ros2-deployment.yaml
+
+    - name: Deploy ROS 2 workload
+      shell: |
+        kubectl apply -f /tmp/ros2-k8s/ros2-deployment.yaml
+
+    - name: Wait for ROS 2 pod to be ready
+      shell: |
+        kubectl wait --for=condition=ready pod \
+          -l app=ros2-workload \
+          -n {{ ros2_namespace }} \
+          --timeout=300s
+      ignore_errors: yes
+
+    - name: Verify ROS 2 deployment
+      shell: |
+        kubectl get deployments -n {{ ros2_namespace }}
+        kubectl get pods -n {{ ros2_namespace }}
+        kubectl get svc -n {{ ros2_namespace }}
+      register: ros2_status
+      changed_when: false
+
+    - name: Show ROS 2 deployment status
+      debug:
+        msg: "{{ ros2_status.stdout }}"
+
+    - name: Create ROS 2 test script
+      copy:
+        content: |
+          #!/bin/bash
+          # Test ROS 2 deployment
+          
+          NAMESPACE="{{ ros2_namespace }}"
+          POD=$(kubectl get pods -n $NAMESPACE -l app=ros2-workload -o jsonpath='{.items[0].metadata.name}')
+          
+          echo "Testing ROS 2 in pod: $POD"
+          
+          # Test ROS 2 environment
+          kubectl exec -it $POD -n $NAMESPACE -- bash -c "source /opt/ros/humble/setup.bash && ros2 --version"
+          
+          # List ROS 2 packages
+          kubectl exec -it $POD -n $NAMESPACE -- bash -c "source /opt/ros/humble/setup.bash && ros2 pkg list"
+        dest: /root/test-ros2.sh
+        mode: '0755'
+
+    - name: Summary
+      debug:
+        msg: |
+          ROS 2 has been successfully deployed to Kubernetes!
+          
+          Namespace: {{ ros2_namespace }}
+          Image: {{ ros2_image }}
+          
+          Test the deployment with:
+          /root/test-ros2.sh
+          
+          Or manually:
+          kubectl exec -it <pod-name> -n {{ ros2_namespace }} -- bash

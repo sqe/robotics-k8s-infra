@@ -1,0 +1,206 @@
+---
+- name: Provision Kubernetes Control Plane
+  hosts: k8s_control_plane
+  become: yes
+  vars:
+    kubernetes_version: "1.28"
+    kubeadm_version: "1.28.0-00"
+    kubelet_version: "1.28.0-00"
+    kubectl_version: "1.28.0-00"
+    pod_network_cidr: "10.244.0.0/16"
+    service_cidr: "10.96.0.0/12"
+
+  tasks:
+    - name: Update system packages
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      register: apt_update
+
+    - name: Upgrade system packages
+      apt:
+        upgrade: dist
+      when: apt_update.changed
+
+    - name: Install required packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - containerd.io
+          - jq
+        state: present
+
+    - name: Install Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=arm64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Configure Docker daemon
+      copy:
+        content: |
+          {
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "100m",
+              "max-file": "5"
+            },
+            "storage-driver": "overlay2",
+            "storage-opts": [
+              "overlay2.override_kernel_check=true"
+            ],
+            "exec-opts": ["native.cgroupdriver=systemd"],
+            "insecure-registries": []
+          }
+        dest: /etc/docker/daemon.json
+      notify: restart docker
+
+    - name: Add Kubernetes GPG key
+      apt_key:
+        url: https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/Release.key
+        state: present
+
+    - name: Add Kubernetes repository
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb /"
+        state: present
+
+    - name: Install Kubernetes components
+      apt:
+        name:
+          - "kubeadm={{ kubeadm_version }}"
+          - "kubelet={{ kubelet_version }}"
+          - "kubectl={{ kubectl_version }}"
+        state: present
+        update_cache: yes
+
+    - name: Hold Kubernetes packages
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubeadm
+        - kubelet
+        - kubectl
+
+    - name: Configure kubelet to use systemd cgroup driver
+      lineinfile:
+        path: /etc/default/kubelet
+        create: yes
+        line: 'KUBELET_EXTRA_ARGS=--cgroup-driver=systemd'
+
+    - name: Enable and start kubelet
+      systemd:
+        name: kubelet
+        daemon_reload: yes
+        enabled: yes
+        state: started
+
+    - name: Disable swap
+      command: swapoff -a
+
+    - name: Comment out swap in fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^\s*[^\s]+\s+none\s+swap'
+        state: absent
+
+    - name: Load required kernel modules
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Configure sysctl for Kubernetes
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_set: yes
+        reload: yes
+      loop:
+        - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+        - { key: "net.bridge.bridge-nf-call-iptables", value: "1" }
+        - { key: "net.ipv4.ip_forward", value: "1" }
+
+    - name: Initialize Kubernetes cluster (first control plane only)
+      shell: |
+        kubeadm init \
+          --node-name={{ inventory_hostname }} \
+          --pod-network-cidr={{ pod_network_cidr }} \
+          --service-cidr={{ service_cidr }} \
+          --control-plane-endpoint={{ groups['k8s_control_plane'][0] }} \
+          --upload-certs
+      when: inventory_hostname == groups['k8s_control_plane'][0]
+      register: kubeadm_init
+
+    - name: Create .kube directory
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+
+    - name: Copy kubeconfig
+      shell: cp /etc/kubernetes/admin.conf /root/.kube/config
+      when: kubeadm_init is defined
+
+    - name: Get join command for control plane
+      shell: |
+        kubeadm token create --print-join-command
+      register: join_command
+      when: inventory_hostname == groups['k8s_control_plane'][0]
+      changed_when: false
+
+    - name: Get certificate key for control plane
+      shell: |
+        kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1
+      register: cert_key
+      when: inventory_hostname == groups['k8s_control_plane'][0]
+      changed_when: false
+
+    - name: Set join facts
+      set_fact:
+        kubeadm_join_command: "{{ hostvars[groups['k8s_control_plane'][0]]['join_command'].stdout }}"
+        kubeadm_cert_key: "{{ hostvars[groups['k8s_control_plane'][0]]['cert_key'].stdout }}"
+      when: inventory_hostname != groups['k8s_control_plane'][0]
+
+    - name: Join other control plane nodes
+      shell: |
+        {{ kubeadm_join_command }} \
+          --control-plane \
+          --certificate-key={{ kubeadm_cert_key }}
+      when: inventory_hostname != groups['k8s_control_plane'][0]
+      register: kubeadm_join
+
+    - name: Copy kubeconfig to other control plane nodes
+      shell: |
+        mkdir -p /root/.kube
+        cp /etc/kubernetes/admin.conf /root/.kube/config
+      when: inventory_hostname != groups['k8s_control_plane'][0] and kubeadm_join is changed
+
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted

@@ -1,0 +1,99 @@
+---
+- name: Deploy KubeEdge for Edge Computing
+  hosts: k8s_control_plane[0]
+  become: no
+  vars:
+    kubeedge_version: "1.14.0"
+    keadm_version: "1.14.0"
+
+  tasks:
+    - name: Download keadm binary
+      get_url:
+        url: "https://github.com/kubeedge/kubeedge/releases/download/v{{ keadm_version }}/keadm-v{{ keadm_version }}-linux-arm64.tar.gz"
+        dest: /tmp/keadm.tar.gz
+        mode: '0755'
+
+    - name: Extract keadm
+      unarchive:
+        src: /tmp/keadm.tar.gz
+        dest: /usr/local/bin
+        remote_src: yes
+
+    - name: Install keadm
+      shell: |
+        chmod +x /usr/local/bin/keadm
+        keadm version
+
+    - name: Create CloudCore namespace
+      shell: kubectl create namespace kubeedge || true
+
+    - name: Initialize CloudCore
+      shell: |
+        keadm init --advertise-address={{ hostvars[groups['k8s_control_plane'][0]]['ansible_host'] }} \
+                   --profile=cloud \
+                   --kube-config=/root/.kube/config
+      register: cloudcore_init
+
+    - name: Wait for CloudCore to be ready
+      shell: kubectl get pods -n kubeedge -l app=cloudcore
+      register: cloudcore_status
+      until: "'cloudcore' in cloudcore_status.stdout"
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Get token for edge nodes
+      shell: |
+        keadm gettoken
+      register: edge_token
+      changed_when: false
+
+    - name: Generate KubeEdge edge join command
+      set_fact:
+        kubeedge_edge_command: "keadm join --cloudcore-ipport={{ hostvars[groups['k8s_control_plane'][0]]['ansible_host'] }}:10000 --edgenode-name=edge-node --token={{ edge_token.stdout }} --kubeedge-version=v{{ kubeedge_version }}"
+
+    - name: Create edge node registration script
+      copy:
+        content: |
+          #!/bin/bash
+          # KubeEdge Edge Node Join Script
+          # Usage: ./join-edge-node.sh <edge-node-name>
+          
+          EDGE_NODE_NAME=${1:-edge-node}
+          CLOUDCORE_IP="{{ hostvars[groups['k8s_control_plane'][0]]['ansible_host'] }}"
+          TOKEN="{{ edge_token.stdout }}"
+          KUBEEDGE_VERSION="v{{ kubeedge_version }}"
+          
+          echo "Joining edge node: $EDGE_NODE_NAME"
+          echo "CloudCore IP: $CLOUDCORE_IP"
+          
+          # Download and setup edge node
+          keadm join \
+            --cloudcore-ipport=$CLOUDCORE_IP:10000 \
+            --edgenode-name=$EDGE_NODE_NAME \
+            --token=$TOKEN \
+            --kubeedge-version=$KUBEEDGE_VERSION
+        dest: /root/join-edge-node.sh
+        mode: '0755'
+
+    - name: Deploy KubeEdge monitoring
+      shell: |
+        kubectl apply -f https://raw.githubusercontent.com/kubeedge/kubeedge/master/hack/k8s-scripts/kubeedge-metrics.yaml
+      ignore_errors: yes
+
+    - name: Verify CloudCore status
+      shell: |
+        kubectl logs -n kubeedge -l app=cloudcore | tail -20
+      register: cloudcore_logs
+      changed_when: false
+
+    - name: Show KubeEdge status
+      debug:
+        msg: |
+          KubeEdge CloudCore has been deployed successfully!
+          
+          Edge Node Join Command:
+          {{ kubeedge_edge_command }}
+          
+          CloudCore Logs:
+          {{ cloudcore_logs.stdout }}

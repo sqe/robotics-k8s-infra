@@ -1,0 +1,52 @@
+---
+- name: Deploy Container Network Interface (CNI)
+  hosts: k8s_control_plane[0]
+  become: no
+  vars:
+    cni_plugin: "cilium"  # or flannel, weave, calico
+    cilium_version: "1.14.0"
+
+  tasks:
+    - name: Wait for control plane to be ready
+      command: kubectl get nodes
+      register: nodes_ready
+      until: nodes_ready.rc == 0
+      retries: 10
+      delay: 10
+      changed_when: false
+
+    - name: Deploy Cilium CNI
+      shell: |
+        helm repo add cilium https://helm.cilium.io
+        helm repo update
+        helm install cilium cilium/cilium \
+          --version {{ cilium_version }} \
+          --namespace kube-system \
+          --set cni.chainingMode=portmap \
+          --set kubeProxyReplacement=strict \
+          --set routingMode=tunnel \
+          --set tunnelProtocol=vxlan
+      when: cni_plugin == "cilium"
+
+    - name: Deploy Flannel as alternative CNI
+      shell: |
+        kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+      when: cni_plugin == "flannel"
+
+    - name: Wait for CNI pods to be ready
+      shell: |
+        kubectl wait --for=condition=ready pod \
+          -l k8s-app=cilium \
+          -n kube-system \
+          --timeout=300s
+      ignore_errors: yes
+      when: cni_plugin == "cilium"
+
+    - name: Verify CNI deployment
+      shell: kubectl get pods -n kube-system -l k8s-app=cilium
+      register: cni_pods
+      changed_when: false
+
+    - name: Show CNI pod status
+      debug:
+        msg: "{{ cni_pods.stdout }}"

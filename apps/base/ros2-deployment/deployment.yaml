@@ -1,0 +1,174 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ros2-node
+  labels:
+    app: ros2
+    component: compute-node
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ros2
+  template:
+    metadata:
+      labels:
+        app: ros2
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8888"
+    spec:
+      # ROS 2 requires specific network settings for DDS
+      hostNetwork: false
+      dnsPolicy: ClusterFirst
+      
+      # Init container to wait for dependencies
+      initContainers:
+      - name: wait-for-network
+        image: busybox:1.35
+        command: ['sh', '-c', 'echo "Waiting for network..." && sleep 2']
+      
+      containers:
+      - name: ros2-node
+        image: ros:humble-ros-core
+        imagePullPolicy: IfNotPresent
+        
+        # ROS 2 environment
+        env:
+        - name: ROS_DOMAIN_ID
+          value: "42"
+        - name: ROS_LOCALHOST_ONLY
+          value: "0"  # Enable multicast discovery
+        - name: RCUTILS_LOGGING_USE_STDOUT
+          value: "true"
+        - name: CYCLONEDDS_URI
+          value: |
+            <?xml version="1.0" encoding="UTF-8" ?>
+            <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+              <Domain id="any">
+                <General>
+                  <NetworkInterfaceAddress>0.0.0.0</NetworkInterfaceAddress>
+                  <AllowMulticast>true</AllowMulticast>
+                </General>
+              </Domain>
+            </CycloneDDS>
+        
+        # Health checks
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "ros2 node list > /dev/null 2>&1 || exit 1"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "test -f /var/run/ros2-ready || exit 1"
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 2
+        
+        # Resource requests/limits
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        
+        # Security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: false
+          capabilities:
+            drop:
+            - ALL
+        
+        # Volumes
+        volumeMounts:
+        - name: shared-data
+          mountPath: /workspace
+        - name: dds-config
+          mountPath: /etc/ros2/config
+          readOnly: true
+      
+      # Shared volumes
+      volumes:
+      - name: shared-data
+        emptyDir: {}
+      - name: dds-config
+        configMap:
+          name: ros2-dds-config
+          optional: true
+      
+      # Node affinity for better performance
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - ros2
+              topologyKey: kubernetes.io/hostname
+
+---
+# Service for ROS 2 node discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: ros2-node
+  labels:
+    app: ros2
+spec:
+  type: ClusterIP
+  selector:
+    app: ros2
+  ports:
+  - name: metrics
+    port: 8888
+    targetPort: 8888
+    protocol: TCP
+  # Enable session affinity for DDS
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 86400
+
+---
+# ConfigMap for DDS configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ros2-dds-config
+data:
+  cyclonedds.xml: |
+    <?xml version="1.0" encoding="UTF-8" ?>
+    <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+      <Domain id="any">
+        <General>
+          <NetworkInterfaceAddress>0.0.0.0</NetworkInterfaceAddress>
+          <AllowMulticast>true</AllowMulticast>
+          <MulticastDefaultNICIndex>0</MulticastDefaultNICIndex>
+        </General>
+        <Discovery>
+          <ParticipantIndex>auto</ParticipantIndex>
+          <Ports>
+            <MulticastDiscoveryPort>7400</MulticastDiscoveryPort>
+          </Ports>
+        </Discovery>
+      </Domain>
+    </CycloneDDS>

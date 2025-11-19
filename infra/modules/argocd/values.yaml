@@ -1,0 +1,67 @@
+global:
+  domain: ${domain}
+
+configs:
+  secret:
+    createSecret: true
+    # Comma-separated list of contexts to enable
+    extra:
+      url: https://${domain}
+  params:
+    server.disable.auth: ${insecure}
+    server.insecure: ${insecure}
+  cm:
+    url: https://${domain}
+    oidc.config: |
+      name: OIDC Provider
+      issuer: https://accounts.google.com
+      clientID: YOUR_CLIENT_ID
+      clientSecret: $oidc.clientSecret
+      requestedScopes:
+        - openid
+        - profile
+        - email
+
+server:
+  replicas: ${server_replicas}
+  service:
+    type: LoadBalancer
+  ingress:
+    enabled: false
+  extraArgs:
+    - --insecure
+
+repoServer:
+  replicas: ${repo_server_replicas}
+  autoscaling:
+    enabled: true
+    minReplicas: ${repo_server_replicas}
+    maxReplicas: 5
+
+controller:
+  replicas: ${controller_replicas}
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+
+dex:
+  enabled: ${dex_enabled}
+  replicas: 1
+
+applicationSet:
+  enabled: true
+  replicaCount: 1
+  metrics:
+    enabled: true
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+
+notifications:
+  enabled: ${notifications_enabled}
+  metrics:
+    enabled: true
+  notifiers: {}
