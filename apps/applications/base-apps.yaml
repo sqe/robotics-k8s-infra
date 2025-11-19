@@ -41,7 +41,7 @@ spec:
   
   # Git source - update with your actual repo
   source:
-    repoURL: https://github.com/YOUR_ORG/tf.git
+    repoURL: https://github.com/sqe/robotics-k8s-infra.git
     targetRevision: main
     path: apps/overlays/development/robotics-platform
   
@@ -92,7 +92,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://github.com/YOUR_ORG/tf.git
+        repoURL: https://github.com/sqe/robotics-k8s-infra.git
         targetRevision: main
         path: 'apps/overlays/{{cluster}}/robotics-platform'
       destination:
