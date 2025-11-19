@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ros2-pubsub
+  name: ros2-combined
   labels:
-    app: ros2-pubsub
+    app: ros2-combined
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ros2-pubsub
+      app: ros2-combined
   template:
     metadata:
       labels:
-        app: ros2-pubsub
+        app: ros2-combined
     spec:
       dnsPolicy: ClusterFirst
       nodeSelector:
@@ -77,4 +77,4 @@ spec:
       volumes:
       - name: dds-config
         configMap:
-          name: cyclonedds-config
+          name: cyclonedds-config-combined
