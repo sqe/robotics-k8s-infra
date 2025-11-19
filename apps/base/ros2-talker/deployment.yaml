@@ -21,10 +21,10 @@ spec:
         kubernetes.io/hostname: robotics-dev-worker4
       containers:
       - name: talker
-        image: arm64v8/ros:humble
+        image: osrf/ros:humble
         imagePullPolicy: IfNotPresent
         command: ["/bin/bash"]
-        args: ["-c", "apt-get update && apt-get install -y ros-humble-demo-nodes-cpp && source /opt/ros/humble/setup.bash && ros2 run demo_nodes_cpp talker"]
+        args: ["-c", "source /opt/ros/humble/setup.bash && ros2 run demo_nodes_cpp talker"]
         
         env:
         - name: ROS_DOMAIN_ID
