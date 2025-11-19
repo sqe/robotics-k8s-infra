@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: discovery-server
-        image: osrf/ros:humble
+        image: osrf/ros:humble-desktop
         imagePullPolicy: IfNotPresent
         command: ["/bin/bash", "-c"]
         args:
