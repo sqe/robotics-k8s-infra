@@ -30,7 +30,7 @@ spec:
             echo "Service not ready, retrying..."
             sleep 2
           done
-          TALKER_IP=$(nslookup ros2-talker.default.svc.cluster.local | grep -A5 "Name:" | tail -1 | awk '{print $NF}')
+          TALKER_IP=$(nslookup ros2-talker.default.svc.cluster.local | grep "Address:" | tail -1 | awk '{print $NF}')
           echo "Discovered talker IP: $TALKER_IP"
           cat > /etc/ros2/cyclonedds.xml <<EOF
           <?xml version="1.0" encoding="UTF-8" ?>
