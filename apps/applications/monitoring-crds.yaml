@@ -1,0 +1,43 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: k8s-monitoring
+    targetRevision: "^2"
+    helm:
+      releaseName: grafana-monitoring
+      values: |
+        cluster:
+          name: robotics-dev
+        clusterMetrics:
+          enabled: true
+        clusterEvents:
+          enabled: true
+        podLogs:
+          enabled: true
+        applicationObservability:
+          enabled: true
+        alloy-metrics:
+          enabled: true
+        alloy-logs:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
