@@ -30,9 +30,15 @@ spec:
         - name: ROS_DOMAIN_ID
           value: "42"
         - name: ROS_LOCALHOST_ONLY
-          value: "1"
+          value: "0"
         - name: RCUTILS_LOGGING_USE_STDOUT
           value: "1"
+        - name: CYCLONEDDS_URI
+          value: "file:///etc/ros2/cyclonedds.xml"
+        volumeMounts:
+        - name: dds-config
+          mountPath: /etc/ros2
+          readOnly: true
         
         resources:
           requests:
@@ -52,6 +58,11 @@ spec:
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
+      
+      volumes:
+      - name: dds-config
+        configMap:
+          name: cyclonedds-config
       
       affinity:
         # Force talker and listener on same node for ROS 2 discovery
