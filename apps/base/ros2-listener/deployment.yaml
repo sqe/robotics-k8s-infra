@@ -28,7 +28,7 @@ spec:
         - name: ROS_LOCALHOST_ONLY
           value: "0"
         - name: RCUTILS_LOGGING_USE_STDOUT
-          value: "true"
+          value: "1"
         
         resources:
           requests:

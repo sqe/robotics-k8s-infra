@@ -42,7 +42,7 @@ spec:
         - name: ROS_LOCALHOST_ONLY
           value: "0"  # Enable multicast discovery
         - name: RCUTILS_LOGGING_USE_STDOUT
-          value: "true"
+          value: "1"
         - name: CYCLONEDDS_URI
           value: |
             <?xml version="1.0" encoding="UTF-8" ?>
