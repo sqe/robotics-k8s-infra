@@ -21,7 +21,7 @@ if ! command -v cilium &> /dev/null; then
   rm cilium-darwin-${CLI_ARCH}.tar.gz
 fi
 
-# Install Cilium with Hubble enabled
+# Install Cilium with Hubble enabled and multicast support
 echo "Installing Cilium..."
 cilium install \
   --context "kind-$CLUSTER_NAME" \
@@ -29,17 +29,26 @@ cilium install \
   --helm-set hubble.ui.enabled=true \
   --helm-set l7Proxy=true \
   --helm-set operator.prometheus.enabled=true \
-  --helm-set prometheus.enabled=true
+  --helm-set prometheus.enabled=true \
+  --helm-set multicast.enabled=true
 
 # Wait for Cilium to be ready
 echo "Waiting for Cilium to be ready..."
 cilium status --context "kind-$CLUSTER_NAME" --wait
 
+# Configure ROS 2 multicast group (239.255.0.1)
+echo "Configuring multicast group for ROS 2..."
+cilium multicast add --group-ip 239.255.0.1 --context "kind-$CLUSTER_NAME"
+
+# Verify multicast configuration
+echo "Verifying multicast configuration..."
+cilium multicast list subscriber --all --context "kind-$CLUSTER_NAME"
+
 # Verify installation
 echo "Verifying Cilium installation..."
 cilium connectivity test --context "kind-$CLUSTER_NAME"
 
-echo "Hubble and Cilium installed successfully!"
+echo "Hubble and Cilium installed successfully with multicast support!"
 echo ""
 echo "To access Hubble UI, run:"
 echo "  cilium hubble ui --context kind-$CLUSTER_NAME"

@@ -15,6 +15,10 @@ spec:
       labels:
         app: ros2-talker
     spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        kubernetes.io/hostname: robotics-dev-worker4
       containers:
       - name: talker
         image: arm64v8/ros:humble
@@ -50,24 +54,13 @@ spec:
           failureThreshold: 3
       
       affinity:
-        # Spread talker to different nodes
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                - key: app
-                  operator: In
-                  values:
-                  - ros2-listener
-              topologyKey: kubernetes.io/hostname
-          - weight: 50
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                - key: app
-                  operator: In
-                  values:
-                  - ros2-talker
-              topologyKey: kubernetes.io/hostname
+        # Force talker and listener on same node for ROS 2 discovery
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - ros2-listener
+            topologyKey: kubernetes.io/hostname
