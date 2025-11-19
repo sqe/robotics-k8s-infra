@@ -32,6 +32,8 @@ spec:
       - name: ros2-node
         image: ros:humble-ros-core
         imagePullPolicy: IfNotPresent
+        command: ["/bin/bash"]
+        args: ["-c", "touch /var/run/ros2-ready && sleep infinity"]
         
         # ROS 2 environment
         env:
