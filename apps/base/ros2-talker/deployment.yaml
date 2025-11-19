@@ -17,10 +17,10 @@ spec:
     spec:
       containers:
       - name: talker
-        image: ros:humble
+        image: arm64v8/ros:humble
         imagePullPolicy: IfNotPresent
         command: ["/bin/bash"]
-        args: ["-c", "source /opt/ros/humble/setup.bash && ros2 run demo_nodes_cpp talker"]
+        args: ["-c", "apt-get update && apt-get install -y ros-humble-demo-nodes-cpp && source /opt/ros/humble/setup.bash && ros2 run demo_nodes_cpp talker"]
         
         env:
         - name: ROS_DOMAIN_ID
