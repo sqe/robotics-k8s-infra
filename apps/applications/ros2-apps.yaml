@@ -1,21 +1,19 @@
 ---
-# Example: Deploy monitoring stack via ArgoCD
+# ROS 2 Talker Application
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: monitoring
+  name: ros2-talker
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: https://prometheus-community.github.io/helm-charts
-    targetRevision: "60.0.0"
-    chart: kube-prometheus-stack
-    helm:
-      releaseName: prometheus
+    repoURL: https://github.com/sqe/robotics-k8s-infra.git
+    targetRevision: main
+    path: apps/overlays/development/ros2-talker
   destination:
     server: https://kubernetes.default.svc
-    namespace: monitoring
+    namespace: default
   syncPolicy:
     automated:
       prune: true
@@ -30,40 +28,30 @@ spec:
         maxDuration: 3m
 
 ---
-# Robotics Platform - tracks this git repo
+# ROS 2 Listener Application
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: robotics-platform
+  name: ros2-listener
   namespace: argocd
 spec:
   project: default
-  
-  # Git source - update with your actual repo
   source:
     repoURL: https://github.com/sqe/robotics-k8s-infra.git
     targetRevision: main
-    path: apps/overlays/development/robotics-platform
-  
+    path: apps/overlays/development/ros2-listener
   destination:
     server: https://kubernetes.default.svc
     namespace: default
-  
-  # Auto-sync: Any git change auto-deploys
   syncPolicy:
     automated:
-      prune: true      # Delete removed resources
-      selfHeal: true   # Redeploy if manual changes detected
+      prune: true
+      selfHeal: true
     syncOptions:
     - CreateNamespace=true
-    # Auto-prune resources (dangerous in production)
-    - PrunePropagationPolicy=foreground
-    - PruneLast=true
-    
     retry:
       limit: 5
       backoff:
         duration: 5s
         factor: 2
         maxDuration: 3m
-

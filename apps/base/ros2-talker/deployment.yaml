@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ros2-talker
+  labels:
+    app: ros2-talker
+    component: publisher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ros2-talker
+  template:
+    metadata:
+      labels:
+        app: ros2-talker
+    spec:
+      containers:
+      - name: talker
+        image: ros:humble-ros-core
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash"]
+        args: ["-c", "source /opt/ros/humble/setup.bash && ros2 run demo_nodes_cpp talker"]
+        
+        env:
+        - name: ROS_DOMAIN_ID
+          value: "42"
+        - name: ROS_LOCALHOST_ONLY
+          value: "0"
+        - name: RCUTILS_LOGGING_USE_STDOUT
+          value: "true"
+        
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "ps aux | grep ros2 | grep -v grep > /dev/null"
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+      
+      affinity:
+        # Spread talker to different nodes
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - ros2-listener
+              topologyKey: kubernetes.io/hostname
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - ros2-talker
+              topologyKey: kubernetes.io/hostname
