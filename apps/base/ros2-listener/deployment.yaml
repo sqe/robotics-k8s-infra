@@ -26,12 +26,17 @@ spec:
         args:
         - |
           echo "Waiting for ros2-talker service..."
-          until nslookup ros2-talker.default.svc.cluster.local; do
+          until nslookup ros2-talker.default.svc.cluster.local > /dev/null 2>&1; do
             echo "Service not ready, retrying..."
             sleep 2
           done
-          TALKER_IP=$(nslookup ros2-talker.default.svc.cluster.local | grep "Address:" | tail -1 | awk '{print $NF}')
+          TALKER_IP=$(nslookup ros2-talker.default.svc.cluster.local 2>&1 | awk '/^Address: [0-9]/ && !/10\.96\.0\.10/ {print $NF}')
           echo "Discovered talker IP: $TALKER_IP"
+          if [ -z "$TALKER_IP" ]; then
+            echo "Failed to discover talker IP, checking DNS..."
+            nslookup ros2-talker.default.svc.cluster.local
+            exit 1
+          fi
           cat > /etc/ros2/cyclonedds.xml <<EOF
           <?xml version="1.0" encoding="UTF-8" ?>
           <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
