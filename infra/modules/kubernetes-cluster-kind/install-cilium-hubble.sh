@@ -30,19 +30,11 @@ cilium install \
   --helm-set l7Proxy=true \
   --helm-set operator.prometheus.enabled=true \
   --helm-set prometheus.enabled=true \
-  --helm-set multicast.enabled=true
+  --helm-set config.multicast-enabled=true
 
 # Wait for Cilium to be ready
 echo "Waiting for Cilium to be ready..."
 cilium status --context "kind-$CLUSTER_NAME" --wait
-
-# Configure ROS 2 multicast group (239.255.0.1)
-echo "Configuring multicast group for ROS 2..."
-cilium multicast add --group-ip 239.255.0.1 --context "kind-$CLUSTER_NAME"
-
-# Verify multicast configuration
-echo "Verifying multicast configuration..."
-cilium multicast list subscriber --all --context "kind-$CLUSTER_NAME"
 
 # Verify installation
 echo "Verifying Cilium installation..."

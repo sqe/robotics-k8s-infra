@@ -15,8 +15,7 @@ spec:
       labels:
         app: ros2-listener
     spec:
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: ClusterFirst
       nodeSelector:
         kubernetes.io/hostname: robotics-dev-worker4
       containers:
