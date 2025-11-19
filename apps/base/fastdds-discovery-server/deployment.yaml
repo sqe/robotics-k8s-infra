@@ -33,8 +33,4 @@ spec:
           limits:
             cpu: 200m
             memory: 512Mi
-        livenessProbe:
-          tcpSocket:
-            port: 11811
-          initialDelaySeconds: 10
-          periodSeconds: 30
+
