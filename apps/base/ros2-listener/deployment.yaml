@@ -32,7 +32,7 @@ spec:
           done
           TALKER_IP=$(nslookup ros2-talker.default.svc.cluster.local | grep -A5 "Name:" | tail -1 | awk '{print $NF}')
           echo "Discovered talker IP: $TALKER_IP"
-          cat > /tmp/cyclonedds.xml <<EOF
+          cat > /etc/ros2/cyclonedds.xml <<EOF
           <?xml version="1.0" encoding="UTF-8" ?>
           <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
             <Domain id="any">
@@ -45,8 +45,8 @@ spec:
           </CycloneDDS>
           EOF
         volumeMounts:
-        - name: dds-config
-          mountPath: /tmp
+        - name: dds-config-init
+          mountPath: /etc/ros2
       containers:
       - name: listener
         image: arm64v8/ros:humble
@@ -87,8 +87,6 @@ spec:
           failureThreshold: 3
       
       volumes:
-      - name: dds-config
-        emptyDir: {}
       - name: dds-config-init
         emptyDir: {}
       
