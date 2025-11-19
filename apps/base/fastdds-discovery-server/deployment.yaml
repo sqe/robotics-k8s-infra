@@ -37,10 +37,11 @@ spec:
           exec:
             command:
             - /bin/bash
-            - -c
-            - "ps aux | grep 'fastdds discovery' | grep -v grep > /dev/null"
+            - '-c'
+            - ps aux | grep fastdds | grep -v grep > /dev/null
+          failureThreshold: 3
           initialDelaySeconds: 10
           periodSeconds: 30
+          successThreshold: 1
           timeoutSeconds: 5
-          failureThreshold: 3
 
