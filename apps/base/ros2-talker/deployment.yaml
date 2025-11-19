@@ -30,7 +30,7 @@ spec:
         - name: ROS_DOMAIN_ID
           value: "42"
         - name: ROS_LOCALHOST_ONLY
-          value: "0"
+          value: "1"
         - name: RCUTILS_LOGGING_USE_STDOUT
           value: "1"
         
