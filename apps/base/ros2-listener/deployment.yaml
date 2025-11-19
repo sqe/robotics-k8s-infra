@@ -19,39 +19,18 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: robotics-dev-worker4
       initContainers:
-      - name: generate-dds-config
+      - name: wait-discovery-server
         image: busybox:latest
         imagePullPolicy: IfNotPresent
         command: ['sh', '-c']
         args:
         - |
-          echo "Waiting for ros2-talker service..."
-          until nslookup ros2-talker.default.svc.cluster.local > /dev/null 2>&1; do
-            echo "Service not ready, retrying..."
+          echo "Waiting for FastDDS discovery server..."
+          until nslookup fastdds-discovery-server.default.svc.cluster.local > /dev/null 2>&1; do
+            echo "Discovery server not ready, retrying..."
             sleep 2
           done
-          TALKER_IP=$(nslookup ros2-talker.default.svc.cluster.local 2>&1 | awk '/^Address: [0-9]/ && !/10\.96\.0\.10/ {print $NF}')
-          echo "Discovered talker IP: $TALKER_IP"
-          if [ -z "$TALKER_IP" ]; then
-            echo "Failed to discover talker IP, checking DNS..."
-            nslookup ros2-talker.default.svc.cluster.local
-            exit 1
-          fi
-          cat > /etc/ros2/cyclonedds.xml <<EOF
-          <?xml version="1.0" encoding="UTF-8" ?>
-          <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
-            <Domain id="any">
-              <General>
-                <NetworkInterfaceAddress>0.0.0.0</NetworkInterfaceAddress>
-                <AllowMulticast>false</AllowMulticast>
-                <Peer address="$TALKER_IP"/>
-              </General>
-            </Domain>
-          </CycloneDDS>
-          EOF
-        volumeMounts:
-        - name: dds-config-init
-          mountPath: /etc/ros2
+          echo "Discovery server is ready"
       containers:
       - name: listener
         image: arm64v8/ros:humble
@@ -66,11 +45,9 @@ spec:
           value: "0"
         - name: RCUTILS_LOGGING_USE_STDOUT
           value: "1"
-        - name: CYCLONEDDS_URI
-          value: "file:///etc/ros2/cyclonedds.xml"
-        volumeMounts:
-        - name: dds-config-init
-          mountPath: /etc/ros2
+        - name: FASTDDS_DISCOVERY_SERVER
+          value: "fastdds-discovery-server.default.svc.cluster.local:11811"
+        volumeMounts: []
         
         resources:
           requests:
@@ -91,9 +68,7 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
       
-      volumes:
-      - name: dds-config-init
-        emptyDir: {}
+      volumes: []
       
       affinity:
         # Force listener and talker on same node for ROS 2 discovery

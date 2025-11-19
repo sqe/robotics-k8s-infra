@@ -32,12 +32,9 @@ spec:
           value: "0"
         - name: RCUTILS_LOGGING_USE_STDOUT
           value: "1"
-        - name: CYCLONEDDS_URI
-          value: "file:///etc/ros2/cyclonedds.xml"
-        volumeMounts:
-        - name: dds-config
-          mountPath: /etc/ros2
-          readOnly: true
+        - name: FASTDDS_DISCOVERY_SERVER
+          value: "fastdds-discovery-server.default.svc.cluster.local:11811"
+        volumeMounts: []
         
         resources:
           requests:
@@ -58,10 +55,7 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
       
-      volumes:
-      - name: dds-config
-        configMap:
-          name: cyclonedds-config
+      volumes: []
       
       affinity:
         # Force talker and listener on same node for ROS 2 discovery

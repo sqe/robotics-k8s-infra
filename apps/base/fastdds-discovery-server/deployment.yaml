@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastdds-discovery-server
+  labels:
+    app: fastdds-discovery-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fastdds-discovery-server
+  template:
+    metadata:
+      labels:
+        app: fastdds-discovery-server
+    spec:
+      containers:
+      - name: discovery-server
+        image: osrf/ros:humble
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          source /opt/ros/humble/setup.bash
+          fastdds discovery -i 0 -p 11811
+        ports:
+        - containerPort: 11811
+          name: discovery
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 200m
+            memory: 512Mi
+        livenessProbe:
+          tcpSocket:
+            port: 11811
+          initialDelaySeconds: 10
+          periodSeconds: 30
