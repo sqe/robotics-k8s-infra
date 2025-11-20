@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ros2-listener-domain2
+  labels:
+    app: ros2-listener-domain2
+    component: subscriber
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ros2-listener-domain2
+  template:
+    metadata:
+       labels:
+         app: ros2-listener-domain2
+    spec:
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - name: wait-discovery-server
+        image: busybox:latest
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c']
+        args:
+         - |
+           echo "Waiting for FastDDS discovery server..."
+           until nslookup fastdds-discovery-server-domain2.default.svc.cluster.local > /dev/null 2>&1; do
+             echo "Discovery server not ready, retrying..."
+             sleep 2
+           done
+           echo "Discovery server is ready"
+      containers:
+      - name: listener
+        image: arm64v8/ros:humble
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash"]
+        args: ["-c", "apt-get update && apt-get install -y ros-humble-demo-nodes-cpp && source /opt/ros/humble/setup.bash && ros2 run demo_nodes_cpp listener"]
+        
+        env:
+        - name: ROS_DOMAIN_ID
+          value: "43"
+        - name: ROS_LOCALHOST_ONLY
+          value: "0"
+        - name: RCUTILS_LOGGING_USE_STDOUT
+          value: "1"
+        - name: ROS_DISCOVERY_SERVER
+          value: "fastdds-discovery-server-domain2.default.svc.cluster.local:11811"
+        volumeMounts: []
+        
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        
+        livenessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -c
+            - "ps aux | grep ros2 | grep -v grep > /dev/null"
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+      
+      volumes: []
