@@ -180,7 +180,7 @@ spec:
         print(f"  QUIC: {endpoint.get('quic_port')}")
 
 def main():
-    parser = argparse.ArgumentParser(description='Manage KubeEdge edge nodes')
+    parser = argparse.ArgumentParser(description='Manage KubeEdge edge nodes and simulations')
     subparsers = parser.add_subparsers(dest='command', help='Command to run')
     
     # status command
@@ -194,6 +194,12 @@ def main():
     
     # list command
     subparsers.add_parser('list', help='List edge nodes')
+    
+    # simulate command
+    sim_parser = subparsers.add_parser('simulate-edge', help='Simulate an edge node with ROS2')
+    sim_parser.add_argument('--node-name', default='robot-edge-01', help='Edge node name')
+    sim_parser.add_argument('--worker-node', default='robotics-dev-worker', help='Kubernetes worker node')
+    sim_parser.add_argument('--domain-id', default='42', help='ROS_DOMAIN_ID')
     
     # deploy command
     deploy_parser = subparsers.add_parser('deploy-ros2', help='Deploy ROS2 app on edge')
@@ -220,6 +226,16 @@ def main():
         nodes = manager.list_edge_nodes()
         for node in nodes:
             print(node)
+    
+    elif args.command == 'simulate-edge':
+        print(f"Simulating edge node: {args.node_name}")
+        print(f"Worker node: {args.worker_node}")
+        print(f"ROS Domain ID: {args.domain_id}")
+        print("")
+        
+        script_path = Path(__file__).parent / "simulate-edge-node.sh"
+        cmd = f"bash {script_path} {args.node_name} {args.worker_node} {args.domain_id}"
+        subprocess.run(cmd, shell=True)
     
     elif args.command == 'deploy-ros2':
         yaml = manager.deploy_ros2_app(args.app_name, args.image, args.domain_id)

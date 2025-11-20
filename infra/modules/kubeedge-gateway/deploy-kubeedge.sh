@@ -59,6 +59,17 @@ rules:
   - update
   - patch
 - apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+- apiGroups:
   - ""
   resources:
   - pods
@@ -88,6 +99,32 @@ rules:
   resources:
   - devices
   - devicemodels
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - rules.kubeedge.io
+  resources:
+  - rules
+  - ruleendpoints
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - reliablesyncs.kubeedge.io
+  resources:
+  - clusterobjectsyncs
+  - objectsyncs
   verbs:
   - get
   - list

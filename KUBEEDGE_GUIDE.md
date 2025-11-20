@@ -83,54 +83,66 @@ cloudcore-69944df65f-8qs6r   1/1     Running   0          2m
 ### 2. Check CloudCore Endpoint
 
 ```bash
+# Get CloudCore service IP
 kubectl get svc cloudcore -n kubeedge -o jsonpath='{.spec.clusterIP}'
 # Output: 10.96.77.2
+
+# Check CloudCore status
+python3 edge-node-manager.py status
 ```
 
-### 3. Simulate an Edge Node
+### 3. Simulate an Edge Node with ROS2
 
 ```bash
-# Start a simulated robot/edge device
-bash simulate-edge-node.sh robot-edge-01 10.96.77.2 10000
+# Create simulated edge node (pod-based, not real KubeEdge node)
+python3 edge-node-manager.py simulate-edge \
+  --node-name robot-edge-01 \
+  --worker-node robotics-dev-worker \
+  --domain-id 42
 
-# Wait 30-60 seconds for EdgeCore to initialize
-sleep 60
-
-# Check if edge node joined
-kubectl get nodes -o wide
+# This creates two resources:
+# 1. robot-edge-01 (pod that sleeps - represents edge device)
+# 2. ros2-talker-edge (deployment - ROS2 publisher on edge)
 ```
 
-Should show:
-```
-NAME             STATUS   ROLES    AGE   VERSION
-robot-edge-01    Ready    <none>   45s   v1.15.0-kubeedge
-```
-
-### 4. Deploy ROS 2 on Edge Node
+### 4. Verify Edge Simulation Running
 
 ```bash
-# Generate ROS 2 deployment
-python3 edge-node-manager.py deploy-ros2 \
-  --app-name ros2-talker \
-  --image arm64v8/ros:humble \
-  --domain-id 42 \
-  --output /tmp/talker-edge.yaml
+# Check edge node pod
+kubectl get pods -o wide | grep robot-edge-01
+# Output: robot-edge-01  1/1  Running  10m  10.244.3.246
 
-# Deploy to edge node
-kubectl apply -f /tmp/talker-edge.yaml
+# Check ROS2 talker deployment
+kubectl get pods -o wide | grep ros2-talker-edge
+# Output: ros2-talker-edge-574747d94d-pwb5g  1/1  Running  10m
 
-# Check pod status
-kubectl get pods -o wide | grep talker-edge
+# View ROS2 messages being published
+kubectl logs -f deployment/ros2-talker-edge -c talker
+
+# Output:
+# [INFO] [1763636906.911529887] [talker]: Publishing: 'Hello World: 612'
+# [INFO] [1763636907.911371679] [talker]: Publishing: 'Hello World: 613'
 ```
 
-### 5. Verify ROS 2 Running on Edge
+### 5. Understand Registered vs Simulated
+
+Important distinction:
 
 ```bash
-# Check pod logs
-kubectl logs -l app=ros2-talker-edge
+# Simulated edge workloads (what we just created)
+kubectl get pods -o wide | grep -E "robot-edge|ros2-talker-edge"
+# These are pods on the control plane running ROS2
 
-# Should see: Publishing messages...
+# Real edge nodes registered via KubeEdge
+kubectl get nodes -o wide | grep -i edge
+# Would show actual devices running EdgeCore daemon (keadm)
+
+# CloudCore management layer
+kubectl get pods -n kubeedge
+# Shows CloudCore accepting incoming connections on ports 10000-10002
 ```
+
+The simulation demonstrates ROS2 running on edge nodes. To connect real edge devices, see the "Real Edge Node Registration" section below.
 
 ## Production Deployment (AWS EKS)
 
@@ -213,6 +225,61 @@ spec:
 EOF
 ```
 
+## Understanding Edge Nodes vs Simulated Workloads
+
+There are two ways to run edge workloads:
+
+### 1. Simulated Edge Nodes (What We Demonstrated)
+
+Kubernetes pods running on the control plane that simulate edge behavior:
+
+```bash
+# Create simulation
+python3 edge-node-manager.py simulate-edge \
+  --node-name robot-edge-01 \
+  --worker-node robotics-dev-worker \
+  --domain-id 42
+
+# What this creates:
+# - robot-edge-01: Pod sleeping in background (represents edge device)
+# - ros2-talker-edge: Deployment publishing ROS2 messages
+
+# View:
+kubectl get pods -o wide | grep robot-edge
+kubectl logs -f deployment/ros2-talker-edge -c talker
+```
+
+Advantages:
+- No physical hardware needed
+- Easy testing and development
+- Same ROS2 application code as production
+
+Limitations:
+- No actual KubeEdge EdgeCore daemon
+- No offline capability
+- Not a real edge device
+
+### 2. Real Edge Nodes (Production)
+
+Physical devices or VMs running KubeEdge EdgeCore:
+
+```bash
+# On edge device, install and join:
+keadm join --cloudcore-ipport=<CLOUDCORE-IP>:10000 \
+  --edgenode-name=warehouse-robot-01 \
+  --kubeedge-version=v1.15.0
+
+# View registered nodes:
+kubectl get nodes -o wide
+# Shows real edge nodes in cluster
+```
+
+Advantages:
+- Actual edge device integration
+- Offline-capable with local caching
+- Real-time data processing
+- Device management via KubeEdge
+
 ## Management Commands
 
 ### CloudCore Status
@@ -231,18 +298,28 @@ kubectl port-forward svc/cloudcore -n kubeedge 9000:9000
 
 ### Edge Nodes
 
-```bash
-# List all edge nodes
-python3 edge-node-manager.py list
+Check registered KubeEdge nodes (real devices only):
 
-# Check edge node status
-python3 edge-node-manager.py status
+```bash
+# List all registered edge nodes
+kubectl get nodes -o wide | grep -i edge
 
 # Get detailed node info
 kubectl describe node <edge-node-name>
 
-# Check EdgeCore logs (inside container)
-docker exec <edge-container> journalctl -u edgecore -f
+# For simulated edge workloads:
+python3 edge-node-manager.py status
+
+# Check CloudCore logs
+kubectl logs -f deployment/cloudcore -n kubeedge
+```
+
+For real edge devices with EdgeCore running:
+
+```bash
+# View EdgeCore logs on device
+ssh user@<edge-device>
+journalctl -u edgecore -f
 ```
 
 ### ROS 2 Pods on Edge
@@ -364,22 +441,33 @@ EOF
 
 ### Edge Node Can't Connect
 
+For real edge devices:
+
 ```bash
+# SSH to edge device
+ssh user@<edge-device>
+
 # Check connectivity to CloudCore
-docker exec <edge-container> \
-  curl -v telnet://10.96.77.2:10000
+telnet <CLOUDCORE-IP> 10000
 
 # Check DNS resolution
-docker exec <edge-container> \
-  nslookup cloudcore.kubeedge.svc.cluster.local
-
-# Check firewall
-docker exec <edge-container> \
-  telnet 10.96.77.2 10000
+nslookup cloudcore.kubeedge.svc.cluster.local
 
 # Restart EdgeCore
-docker exec <edge-container> \
-  systemctl restart edgecore
+sudo systemctl restart edgecore
+
+# View EdgeCore logs
+journalctl -u edgecore -n 100 --no-pager
+```
+
+For simulated workloads:
+
+```bash
+# Check pod network connectivity
+kubectl exec -it robot-edge-01 -- ping 10.96.77.2
+
+# Check CloudCore is listening
+kubectl exec -it robot-edge-01 -- nc -zv 10.96.77.2 10000
 ```
 
 ### ROS 2 Pods Pending on Edge
