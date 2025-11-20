@@ -22,7 +22,15 @@ help:
 	@echo "  make validate          Validate Terraform configuration"
 	@echo "  make fmt               Format Terraform files"
 	@echo ""
-	@echo "$(GREEN)Ansible Commands:$(NC)"
+	@echo "$(GREEN)Ansible - KinD Local Deployment (Full Stack):$(NC)"
+	@echo "  make kind-deploy       Deploy everything: KinD+KubeEdge+ArgoCD+ROS2"
+	@echo "  make kind-cluster      Create KinD cluster only"
+	@echo "  make kind-kubeedge     Deploy KubeEdge to existing cluster"
+	@echo "  make kind-argocd       Deploy ArgoCD to existing cluster"
+	@echo "  make kind-ros2         Deploy ROS2 apps to existing cluster"
+	@echo "  make kind-destroy      Delete KinD cluster"
+	@echo ""
+	@echo "$(GREEN)Ansible - Multi-node Infrastructure:$(NC)"
 	@echo "  make provision-cp      Provision control plane"
 	@echo "  make provision-workers Provision worker nodes"
 	@echo "  make deploy-cni        Deploy CNI (Cilium/Flannel)"
@@ -46,7 +54,8 @@ help:
 	@echo "  make clean             Clean up local files"
 	@echo ""
 	@echo "$(GREEN)Usage Examples:$(NC)"
-	@echo "  make init plan apply   # Quick start"
+	@echo "  make kind-deploy       # Single command for KinD setup"
+	@echo "  make init plan apply   # Terraform quick start"
 	@echo "  make ENVIRONMENT=staging apply  # Use different environment"
 	@echo ""
 
@@ -88,7 +97,41 @@ lint:
 	@command -v tflint >/dev/null 2>&1 || { echo "$(RED)tflint not installed$(NC)"; exit 1; }
 	cd $(TF_DIR) && tflint
 
-# Ansible targets
+# Ansible KinD targets (local development)
+kind-cluster:
+	@echo "$(BLUE)Creating KinD cluster with Cilium, Hubble, and metrics-server$(NC)"
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/provision-kind-cluster.yml
+
+kind-kubeedge:
+	@echo "$(BLUE)Deploying KubeEdge CloudCore to KinD cluster$(NC)"
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/deploy-kubeedge.yml
+
+kind-argocd:
+	@echo "$(BLUE)Deploying ArgoCD to KinD cluster$(NC)"
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/deploy-argocd.yml
+
+kind-ros2:
+	@echo "$(BLUE)Deploying ROS2 applications to KinD cluster$(NC)"
+	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/deploy-ros2.yml
+
+kind-deploy: kind-cluster kind-kubeedge kind-argocd kind-ros2
+	@echo "$(GREEN)KinD cluster deployment complete!$(NC)"
+	@echo "$(BLUE)Next steps:$(NC)"
+	@echo "  - Verify cluster: make get-pods"
+	@echo "  - View KubeEdge: kubectl get pods -n kubeedge"
+	@echo "  - Access ArgoCD: kubectl port-forward -n argocd svc/argocd-server 8080:443"
+	@echo "  - Monitor ROS2: kubectl logs -f deployment/ros2-talker-cloud"
+
+kind-destroy:
+	@echo "$(RED)Deleting KinD cluster$(NC)"
+	@read -p "Are you sure? This will delete the entire cluster [y/N] " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		kind delete cluster --name robotics-dev || true; \
+		echo "$(GREEN)KinD cluster deleted$(NC)"; \
+	fi
+
+# Ansible multi-node infrastructure targets
 provision-cp:
 	@echo "$(BLUE)Provisioning control plane$(NC)"
 	cd $(ANSIBLE_DIR) && ansible-playbook playbooks/provision-control-plane.yml

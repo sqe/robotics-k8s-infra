@@ -1,159 +1,168 @@
 ---
-- name: Deploy ROS 2 on Kubernetes
-  hosts: k8s_control_plane[0]
-  become: no
+# Deploy ROS2 applications with multi-domain DDS support
+# Matches terraform+kustomize approach from apps/base
+# Usage: ansible-playbook playbooks/deploy-ros2.yml
+
+- name: Deploy ROS2 Applications
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
   vars:
-    ros2_namespace: "ros2-workloads"
-    ros2_image: "osrf/ros:humble-desktop"
-    helm_chart_repo: "https://github.com/yourusername/ros2-helm-charts"
-
+    kubeconfig: "{{ lookup('env', 'KUBECONFIG') | default(ansible_env.KUBECONFIG, true) }}"
+    # ROS2 apps configuration
+    ros_version: "humble"
+    ros_image: "arm64v8/ros:{{ ros_version }}"
+    fastdds_image: "osrf/ros:{{ ros_version }}-desktop"
+    default_namespace: "default"
+  
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+  
   tasks:
-    - name: Create ROS 2 namespace
-      shell: |
-        kubectl create namespace {{ ros2_namespace }} || true
-
-    - name: Create ROS 2 config directory
-      file:
-        path: /tmp/ros2-k8s
-        state: directory
-
-    - name: Create ROS 2 values file
-      copy:
-        content: |
-          replicaCount: 1
-          
-          image:
-            repository: {{ ros2_image }}
-            pullPolicy: IfNotPresent
-            tag: ""
-          
-          imagePullSecrets: []
-          nameOverride: ""
-          fullnameOverride: ""
-          
-          serviceAccount:
-            create: true
-            annotations: {}
-            name: ""
-          
-          podAnnotations: {}
-          
-          podSecurityContext: {}
-          
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
-            runAsNonRoot: false
-            capabilities:
-              add:
-                - NET_BIND_SERVICE
-              drop:
-                - ALL
-          
-          service:
-            type: ClusterIP
-            port: 7400
-            protocol: UDP
-          
-          resources:
-            requests:
-              cpu: 500m
-              memory: 512Mi
-            limits:
-              cpu: 1000m
-              memory: 1Gi
-          
-          autoscaling:
-            enabled: false
-            minReplicas: 1
-            maxReplicas: 5
-            targetCPUUtilizationPercentage: 70
-            targetMemoryUtilizationPercentage: 80
-          
-          env:
-            ROS_DOMAIN_ID: "0"
-            ROS_LOCALHOST_ONLY: "0"
-            AMENT_PREFIX_PATH: "/opt/ros/humble"
-            COLCON_PREFIX_PATH: "/opt/ros/humble"
-          
-          nodeSelector:
-            workload-type: robotics
-          
-          tolerations: []
-          
-          affinity: {}
-        dest: /tmp/ros2-k8s/values.yaml
-
-    - name: Create Helm chart for ROS 2
-      copy:
-        content: |
-          apiVersion: v2
-          name: ros2-workload
-          description: A Helm chart for deploying ROS 2 on Kubernetes
-          type: application
-          version: 0.1.0
-          appVersion: "humble"
-          keywords:
-            - ros2
-            - robotics
-            - kubernetes
-          maintainers:
-            - name: Your Name
-              email: your.email@example.com
-        dest: /tmp/ros2-k8s/Chart.yaml
-
-    - name: Create ROS 2 deployment manifest
-      copy:
-        content: |
+    - name: Check kubectl is available
+      shell: kubectl version --client
+      changed_when: false
+    
+    - name: Create namespace for ROS2 apps
+      kubernetes.core.k8s:
+        name: "{{ default_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Deploy FastDDS Discovery Server (Domain 42)
+      kubernetes.core.k8s:
+        definition:
           apiVersion: apps/v1
           kind: Deployment
           metadata:
-            name: ros2-node
-            namespace: {{ ros2_namespace }}
+            name: fastdds-discovery-server
+            namespace: "{{ default_namespace }}"
             labels:
-              app: ros2-workload
-              framework: ros2
+              app: fastdds-discovery-server
+              ros-domain: "42"
           spec:
             replicas: 1
             selector:
               matchLabels:
-                app: ros2-workload
+                app: fastdds-discovery-server
             template:
               metadata:
                 labels:
-                  app: ros2-workload
+                  app: fastdds-discovery-server
+                  ros-domain: "42"
               spec:
-                serviceAccountName: ros2-workload
                 containers:
-                - name: ros2-node
-                  image: {{ ros2_image }}
+                - name: discovery-server
+                  image: "{{ fastdds_image }}"
                   imagePullPolicy: IfNotPresent
                   command:
-                    - /bin/bash
-                    - -c
-                    - |
-                      source /opt/ros/humble/setup.bash
-                      sleep infinity
+                  - /bin/bash
+                  - -c
+                  - |
+                    apt-get update && apt-get install -y fastdds-tools >/dev/null 2>&1
+                    fastdds discovery --server-id 0 --listen-address 0.0.0.0 --port 11811
                   env:
                   - name: ROS_DOMAIN_ID
-                    value: "0"
-                  - name: ROS_LOCALHOST_ONLY
-                    value: "0"
-                  - name: AMENT_PREFIX_PATH
-                    value: /opt/ros/humble
-                  - name: COLCON_PREFIX_PATH
-                    value: /opt/ros/humble
+                    value: "42"
                   ports:
-                  - name: dds-multicast
-                    containerPort: 7400
-                    protocol: UDP
-                  - name: dds-unicast
-                    containerPort: 7401
-                    protocol: UDP
+                  - containerPort: 11811
+                    name: discovery
+                    protocol: TCP
                   resources:
                     requests:
+                      cpu: 100m
+                      memory: 128Mi
+                    limits:
                       cpu: 500m
                       memory: 512Mi
+                  livenessProbe:
+                    exec:
+                      command:
+                      - /bin/bash
+                      - -c
+                      - "netstat -tuln | grep 11811"
+                    initialDelaySeconds: 10
+                    periodSeconds: 10
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Create FastDDS Discovery Server Service
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: fastdds-discovery-server
+            namespace: "{{ default_namespace }}"
+            labels:
+              app: fastdds-discovery-server
+              ros-domain: "42"
+          spec:
+            type: ClusterIP
+            selector:
+              app: fastdds-discovery-server
+            ports:
+            - name: discovery
+              port: 11811
+              protocol: TCP
+              targetPort: 11811
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Deploy ROS2 Talker (Domain 42, Cloud)
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: ros2-talker-cloud
+            namespace: "{{ default_namespace }}"
+            labels:
+              app: ros2-talker
+              component: talker
+              ros-domain: "42"
+              location: cloud
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: ros2-talker
+                component: talker
+            template:
+              metadata:
+                labels:
+                  app: ros2-talker
+                  component: talker
+                  ros-domain: "42"
+                  location: cloud
+              spec:
+                containers:
+                - name: talker
+                  image: "{{ ros_image }}"
+                  imagePullPolicy: IfNotPresent
+                  command:
+                  - /bin/bash
+                  - -c
+                  - |
+                    source /opt/ros/{{ ros_version }}/setup.bash
+                    ros2 run demo_nodes_cpp talker
+                  env:
+                  - name: ROS_DOMAIN_ID
+                    value: "42"
+                  - name: ROS_LOCALHOST_ONLY
+                    value: "0"
+                  - name: FASTDDS_DISCOVERY_SERVER
+                    value: "fastdds-discovery-server:11811"
+                  resources:
+                    requests:
+                      cpu: 200m
+                      memory: 256Mi
                     limits:
                       cpu: 1000m
                       memory: 1Gi
@@ -162,121 +171,192 @@
                       command:
                       - /bin/bash
                       - -c
-                      - ps aux | grep -v grep | grep bash
-                    initialDelaySeconds: 30
+                      - "pgrep -f 'talker' || exit 1"
+                    initialDelaySeconds: 10
                     periodSeconds: 10
-                  readinessProbe:
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Deploy ROS2 Listener (Domain 42, Cloud)
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: ros2-listener-cloud
+            namespace: "{{ default_namespace }}"
+            labels:
+              app: ros2-listener
+              component: listener
+              ros-domain: "42"
+              location: cloud
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: ros2-listener
+                component: listener
+            template:
+              metadata:
+                labels:
+                  app: ros2-listener
+                  component: listener
+                  ros-domain: "42"
+                  location: cloud
+              spec:
+                containers:
+                - name: listener
+                  image: "{{ ros_image }}"
+                  imagePullPolicy: IfNotPresent
+                  command:
+                  - /bin/bash
+                  - -c
+                  - |
+                    source /opt/ros/{{ ros_version }}/setup.bash
+                    ros2 run demo_nodes_cpp listener
+                  env:
+                  - name: ROS_DOMAIN_ID
+                    value: "42"
+                  - name: ROS_LOCALHOST_ONLY
+                    value: "0"
+                  - name: FASTDDS_DISCOVERY_SERVER
+                    value: "fastdds-discovery-server:11811"
+                  resources:
+                    requests:
+                      cpu: 200m
+                      memory: 256Mi
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                  livenessProbe:
                     exec:
                       command:
                       - /bin/bash
                       - -c
-                      - "true"
+                      - "pgrep -f 'listener' || exit 1"
                     initialDelaySeconds: 10
-                    periodSeconds: 5
-                  securityContext:
-                    allowPrivilegeEscalation: false
-                    readOnlyRootFilesystem: false
-                    runAsNonRoot: false
-                    capabilities:
-                      add:
-                      - NET_BIND_SERVICE
-                      drop:
-                      - ALL
-                affinity:
-                  podAntiAffinity:
-                    preferredDuringSchedulingIgnoredDuringExecution:
-                    - weight: 100
-                      podAffinityTerm:
-                        labelSelector:
-                          matchExpressions:
-                          - key: app
-                            operator: In
-                            values:
-                            - ros2-workload
-                        topologyKey: kubernetes.io/hostname
-                restartPolicy: Always
-          ---
-          apiVersion: v1
-          kind: Service
+                    periodSeconds: 10
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Deploy IoT Sensor App (Domain 43 - Isolated)
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
           metadata:
-            name: ros2-service
-            namespace: {{ ros2_namespace }}
+            name: iot-sensor-node
+            namespace: "{{ default_namespace }}"
             labels:
-              app: ros2-workload
+              app: iot-sensor
+              ros-domain: "43"
+              location: cloud
           spec:
+            replicas: 1
             selector:
-              app: ros2-workload
-            type: ClusterIP
-            ports:
-            - name: dds-multicast
-              port: 7400
-              protocol: UDP
-              targetPort: dds-multicast
-            - name: dds-unicast
-              port: 7401
-              protocol: UDP
-              targetPort: 7401
-          ---
-          apiVersion: v1
-          kind: ServiceAccount
-          metadata:
-            name: ros2-workload
-            namespace: {{ ros2_namespace }}
-        dest: /tmp/ros2-k8s/ros2-deployment.yaml
-
-    - name: Deploy ROS 2 workload
+              matchLabels:
+                app: iot-sensor
+            template:
+              metadata:
+                labels:
+                  app: iot-sensor
+                  ros-domain: "43"
+                  location: cloud
+              spec:
+                containers:
+                - name: sensor
+                  image: "{{ ros_image }}"
+                  imagePullPolicy: IfNotPresent
+                  command:
+                  - /bin/bash
+                  - -c
+                  - |
+                    source /opt/ros/{{ ros_version }}/setup.bash
+                    # Dummy sensor node on separate domain
+                    ros2 run demo_nodes_cpp talker --ros-args --remap __node:=sensor_pub
+                  env:
+                  - name: ROS_DOMAIN_ID
+                    value: "43"
+                  - name: ROS_LOCALHOST_ONLY
+                    value: "0"
+                  resources:
+                    requests:
+                      cpu: 100m
+                      memory: 128Mi
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Wait for ROS2 talker deployment
       shell: |
-        kubectl apply -f /tmp/ros2-k8s/ros2-deployment.yaml
-
-    - name: Wait for ROS 2 pod to be ready
-      shell: |
-        kubectl wait --for=condition=ready pod \
-          -l app=ros2-workload \
-          -n {{ ros2_namespace }} \
-          --timeout=300s
-      ignore_errors: yes
-
-    - name: Verify ROS 2 deployment
-      shell: |
-        kubectl get deployments -n {{ ros2_namespace }}
-        kubectl get pods -n {{ ros2_namespace }}
-        kubectl get svc -n {{ ros2_namespace }}
-      register: ros2_status
+        kubectl rollout status deployment/ros2-talker-cloud -n {{ default_namespace }} --timeout=120s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: talker_status
       changed_when: false
-
-    - name: Show ROS 2 deployment status
+      ignore_errors: yes
+    
+    - name: Wait for ROS2 listener deployment
+      shell: |
+        kubectl rollout status deployment/ros2-listener-cloud -n {{ default_namespace }} --timeout=120s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: listener_status
+      changed_when: false
+      ignore_errors: yes
+    
+    - name: Get ROS2 deployment status
+      shell: |
+        kubectl get deployments -n {{ default_namespace }} -l ros-domain=42 -o wide
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: ros2_deploy_status
+      changed_when: false
+    
+    - name: Display ROS2 deployments
       debug:
-        msg: "{{ ros2_status.stdout }}"
-
-    - name: Create ROS 2 test script
-      copy:
-        content: |
-          #!/bin/bash
-          # Test ROS 2 deployment
-          
-          NAMESPACE="{{ ros2_namespace }}"
-          POD=$(kubectl get pods -n $NAMESPACE -l app=ros2-workload -o jsonpath='{.items[0].metadata.name}')
-          
-          echo "Testing ROS 2 in pod: $POD"
-          
-          # Test ROS 2 environment
-          kubectl exec -it $POD -n $NAMESPACE -- bash -c "source /opt/ros/humble/setup.bash && ros2 --version"
-          
-          # List ROS 2 packages
-          kubectl exec -it $POD -n $NAMESPACE -- bash -c "source /opt/ros/humble/setup.bash && ros2 pkg list"
-        dest: /root/test-ros2.sh
-        mode: '0755'
-
+        msg: "{{ ros2_deploy_status.stdout_lines }}"
+    
+    - name: Get ROS2 pods
+      shell: |
+        kubectl get pods -n {{ default_namespace }} -l ros-domain -o wide
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: ros2_pods
+      changed_when: false
+    
+    - name: Display ROS2 pods
+      debug:
+        msg: "{{ ros2_pods.stdout_lines }}"
+    
     - name: Summary
       debug:
         msg: |
-          ROS 2 has been successfully deployed to Kubernetes!
+          ROS2 Applications deployed successfully!
           
-          Namespace: {{ ros2_namespace }}
-          Image: {{ ros2_image }}
+          Deployments:
+          - fastdds-discovery-server (Domain 42)
+          - ros2-talker-cloud (Domain 42 - Cloud)
+          - ros2-listener-cloud (Domain 42 - Cloud)
+          - iot-sensor-node (Domain 43 - Isolated)
           
-          Test the deployment with:
-          /root/test-ros2.sh
+          Multi-Domain Isolation:
+          Domain 42: Talker + Listener + Discovery Server (communicate with each other)
+          Domain 43: IoT Sensor (ISOLATED from Domain 42)
           
-          Or manually:
-          kubectl exec -it <pod-name> -n {{ ros2_namespace }} -- bash
+          View logs:
+            kubectl logs -f deployment/ros2-talker-cloud
+            kubectl logs -f deployment/ros2-listener-cloud
+            kubectl logs -f deployment/iot-sensor-node
+          
+          Verify communication:
+            kubectl exec -it <talker-pod> -- ros2 topic list
+            kubectl exec -it <listener-pod> -- ros2 topic echo /chatter
+          
+          Monitor pods:
+            kubectl get pods -n {{ default_namespace }} -l ros-domain=42 -w

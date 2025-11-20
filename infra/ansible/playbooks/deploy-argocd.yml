@@ -1,0 +1,246 @@
+---
+# Deploy ArgoCD for GitOps workflow
+# Usage: ansible-playbook playbooks/deploy-argocd.yml
+# Or: ansible-playbook playbooks/deploy-argocd.yml -e "argocd_version=7.0.0 argocd_domain=localhost:8080"
+
+- name: Deploy ArgoCD for GitOps Deployment Management
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  vars:
+    argocd_namespace: "argocd"
+    argocd_version: "7.0.0"
+    argocd_domain: "localhost:8080"
+    kubeconfig: "{{ lookup('env', 'KUBECONFIG') | default(ansible_env.KUBECONFIG, true) }}"
+    # GitHub integration (set via environment or inventory)
+    github_repo_url: "{{ lookup('env', 'GITHUB_REPO_URL') | default('', true) }}"
+    github_token: "{{ lookup('env', 'GITHUB_TOKEN') | default('', true) }}"
+    create_example_app: false
+  
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+  
+  pre_tasks:
+    - name: Check kubectl is available
+      shell: kubectl version --client
+      changed_when: false
+    
+    - name: Check Helm is available
+      shell: helm version --client
+      changed_when: false
+    
+    - name: Validate kubeconfig
+      shell: kubectl cluster-info
+      changed_when: false
+  
+  tasks:
+    - name: Create ArgoCD namespace
+      kubernetes.core.k8s:
+        name: "{{ argocd_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Add ArgoCD Helm repository
+      shell: |
+        helm repo add argo https://argoproj.github.io/argo-helm
+        helm repo update
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      changed_when: false
+    
+    - name: Create ArgoCD Helm values
+      copy:
+        content: |
+          global:
+            domain: {{ argocd_domain }}
+          
+          configs:
+            secret:
+              argocdServerAdminPassword: "$2a$10$RfcwPZdW3VCLz5j0zzw4AOMB.dJtFQM1k1VKrZ0zZGOlF0r6Q5r1m"  # argocd
+          
+          server:
+            insecure: true
+            extraArgs:
+              - --insecure
+            replicas: 1
+          
+          repoServer:
+            replicas: 1
+          
+          controller:
+            replicas: 1
+          
+          redis:
+            enabled: true
+        dest: /tmp/argocd-values.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Install ArgoCD via Helm
+      shell: |
+        helm install argocd argo/argo-cd \
+          --namespace {{ argocd_namespace }} \
+          --version {{ argocd_version }} \
+          --values /tmp/argocd-values.yaml \
+          --timeout 5m
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_install
+      ignore_errors: yes
+    
+    - name: Update ArgoCD if already installed
+      shell: |
+        helm upgrade argocd argo/argo-cd \
+          --namespace {{ argocd_namespace }} \
+          --version {{ argocd_version }} \
+          --values /tmp/argocd-values.yaml \
+          --timeout 5m
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      when: argocd_install.failed
+      ignore_errors: yes
+    
+    - name: Wait for ArgoCD server to be ready
+      shell: |
+        kubectl rollout status deployment/argocd-server -n {{ argocd_namespace }} --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_server_status
+      changed_when: false
+    
+    - name: Wait for ArgoCD repo-server to be ready
+      shell: |
+        kubectl rollout status deployment/argocd-repo-server -n {{ argocd_namespace }} --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_repo_status
+      changed_when: false
+    
+    - name: Wait for ArgoCD controller to be ready
+      shell: |
+        kubectl rollout status deployment/argocd-application-controller -n {{ argocd_namespace }} --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_controller_status
+      changed_when: false
+    
+    - name: Verify ArgoCD deployment
+      shell: |
+        kubectl get pods -n {{ argocd_namespace }}
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_pods
+      changed_when: false
+    
+    - name: Display ArgoCD deployment
+      debug:
+        msg: "{{ argocd_pods.stdout_lines }}"
+    
+    - name: Create GitHub repository secret (if token provided)
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: github-repo
+            namespace: "{{ argocd_namespace }}"
+            labels:
+              argocd.argoproj.io/secret-type: repository
+          type: Opaque
+          stringData:
+            type: git
+            url: "{{ github_repo_url }}"
+            password: "{{ github_token }}"
+            username: not_used
+        state: present
+      when: github_repo_url != "" and github_token != ""
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Create example Application CRD (if enabled)
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: robotics-platform
+            namespace: "{{ argocd_namespace }}"
+          spec:
+            project: default
+            source:
+              repoURL: "{{ github_repo_url }}"
+              targetRevision: HEAD
+              path: apps
+            destination:
+              server: https://kubernetes.default.svc
+              namespace: default
+            syncPolicy:
+              automated:
+                prune: true
+                selfHeal: true
+              syncOptions:
+              - CreateNamespace=true
+        state: present
+      when: create_example_app and github_repo_url != ""
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Get ArgoCD initial admin password
+      shell: |
+        kubectl -n {{ argocd_namespace }} get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_password
+      changed_when: false
+      ignore_errors: yes
+    
+    - name: Get ArgoCD service
+      shell: |
+        kubectl get svc -n {{ argocd_namespace }} argocd-server
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_svc
+      changed_when: false
+    
+    - name: Display ArgoCD service
+      debug:
+        msg: "{{ argocd_svc.stdout_lines }}"
+    
+    - name: Summary
+      debug:
+        msg: |
+          ArgoCD deployment complete!
+          
+          Namespace: {{ argocd_namespace }}
+          Version: {{ argocd_version }}
+          Domain: {{ argocd_domain }}
+          
+          Access ArgoCD:
+            kubectl port-forward -n {{ argocd_namespace }} svc/argocd-server 8080:443
+            Then navigate to: https://localhost:8080
+          
+          Or use the load balancer (if available):
+            kubectl get svc -n {{ argocd_namespace }}
+          
+          Initial Credentials:
+            Username: admin
+            Password: {{ argocd_password.stdout if argocd_password.rc == 0 else 'argocd' }}
+          
+          To change password:
+            argocd account update-password
+          
+          {% if github_repo_url %}
+          GitHub Repository configured:
+            {{ github_repo_url }}
+          {% else %}
+          To configure GitHub repository:
+            argocd repo add <repo-url> --username <username> --password <token>
+          {% endif %}
+          
+          View resources:
+            kubectl get apps -n {{ argocd_namespace }}
+            kubectl get repos -n {{ argocd_namespace }}

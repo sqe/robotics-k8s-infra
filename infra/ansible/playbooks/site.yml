@@ -1,14 +1,111 @@
 ---
-- name: Deploy Kubernetes cluster
+# Complete KinD + KubeEdge + ArgoCD + ROS2 deployment automation
+# Usage: ansible-playbook playbooks/site.yml
+# Or with options: ansible-playbook playbooks/site.yml -e "cluster_name=my-cluster control_plane_count=3"
+
+- name: "KinD Cluster Provisioning"
   hosts: localhost
   gather_facts: no
+  tags:
+    - provision-kind
+    - full-setup
+  vars:
+    cluster_name: "robotics-dev"
+    control_plane_count: 3
+    worker_node_count: 6
+    enable_hubble: true
   tasks:
-    - name: Include provisioning playbooks
-      include_tasks: "{{ item }}"
-      loop:
-        - provision-infrastructure.yml
-        - provision-control-plane.yml
-        - provision-worker-nodes.yml
-        - deploy-cni.yml
-        - deploy-kubeedge.yml
-        - deploy-ros2.yml
+    - name: "Include KinD provisioning playbook"
+      include_tasks: provision-kind-cluster.yml
+
+- name: "KubeEdge CloudCore Deployment"
+  hosts: localhost
+  gather_facts: no
+  tags:
+    - deploy-kubeedge
+    - full-setup
+  vars:
+    kubeedge_version: "1.15.0"
+  tasks:
+    - name: "Include KubeEdge deployment playbook"
+      include_tasks: deploy-kubeedge.yml
+
+- name: "ArgoCD GitOps Deployment"
+  hosts: localhost
+  gather_facts: no
+  tags:
+    - deploy-argocd
+    - full-setup
+  vars:
+    argocd_version: "7.0.0"
+    argocd_domain: "localhost:8080"
+    create_example_app: false
+  tasks:
+    - name: "Include ArgoCD deployment playbook"
+      include_tasks: deploy-argocd.yml
+
+- name: "ROS2 Applications Deployment"
+  hosts: localhost
+  gather_facts: no
+  tags:
+    - deploy-ros2
+    - full-setup
+  tasks:
+    - name: "Include ROS2 deployment playbook"
+      include_tasks: deploy-ros2.yml
+
+- name: "Final Status Report"
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  tags:
+    - full-setup
+  environment:
+    KUBECONFIG: "{{ lookup('env', 'KUBECONFIG') | default(ansible_env.KUBECONFIG, true) }}"
+  tasks:
+    - name: "Get cluster nodes"
+      shell: kubectl get nodes -o wide
+      register: nodes
+      changed_when: false
+    
+    - name: "Get all pods"
+      shell: kubectl get pods -A
+      register: pods
+      changed_when: false
+    
+    - name: "Display Final Status"
+      debug:
+        msg: |
+          ========================================
+          Robotics Platform Deployment Complete!
+          ========================================
+          
+          Cluster Nodes:
+          {{ nodes.stdout_lines | join('\n') }}
+          
+          Pod Status:
+          {{ pods.stdout_lines[:20] | join('\n') }}
+          
+          Available Services:
+          - KubeEdge CloudCore (kubeedge namespace)
+          - ArgoCD (argocd namespace)
+          - ROS2 Applications (default namespace)
+          
+          Next Steps:
+          1. Port forward to ArgoCD:
+             kubectl port-forward -n argocd svc/argocd-server 8080:443
+          
+          2. Access application logs:
+             kubectl logs -f deployment/<app-name>
+          
+          3. Monitor metrics:
+             kubectl top nodes
+             kubectl top pods -A
+          
+          4. View ROS2 messages:
+             kubectl logs -f deployment/ros2-talker-cloud -c talker
+          
+          Documentation:
+          - KubeEdge: https://kubeedge.io
+          - ArgoCD: https://argoproj.github.io/argo-cd/
+          - ROS2: https://docs.ros.org

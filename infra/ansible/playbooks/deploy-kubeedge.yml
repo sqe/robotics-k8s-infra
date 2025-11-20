@@ -1,99 +1,495 @@
 ---
-- name: Deploy KubeEdge for Edge Computing
-  hosts: k8s_control_plane[0]
-  become: no
+# Deploy KubeEdge CloudCore with feature parity to terraform+bash setup
+# Usage: ansible-playbook playbooks/deploy-kubeedge.yml
+# Or: ansible-playbook playbooks/deploy-kubeedge.yml -e "kubeedge_version=1.15.0"
+
+- name: Deploy KubeEdge CloudCore and EdgeMesh
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
   vars:
-    kubeedge_version: "1.14.0"
-    keadm_version: "1.14.0"
-
+    namespace: "kubeedge"
+    kubeedge_version: "1.15.0"
+    edgemesh_version: "1.12.0"
+    kubeconfig: "{{ lookup('env', 'KUBECONFIG') | default(ansible_env.KUBECONFIG, true) }}"
+  
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+  
   tasks:
-    - name: Download keadm binary
-      get_url:
-        url: "https://github.com/kubeedge/kubeedge/releases/download/v{{ keadm_version }}/keadm-v{{ keadm_version }}-linux-arm64.tar.gz"
-        dest: /tmp/keadm.tar.gz
-        mode: '0755'
-
-    - name: Extract keadm
-      unarchive:
-        src: /tmp/keadm.tar.gz
-        dest: /usr/local/bin
-        remote_src: yes
-
-    - name: Install keadm
+    - name: Check kubectl is available
+      shell: kubectl version --client
+      changed_when: false
+    
+    - name: Create kubeedge namespace
+      kubernetes.core.k8s:
+        name: "{{ namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Create ServiceAccount for CloudCore
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: cloudcore
+            namespace: "{{ namespace }}"
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Create ClusterRole for CloudCore
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: cloudcore
+          rules:
+          - apiGroups:
+            - ""
+            resources:
+            - namespaces
+            verbs:
+            - get
+            - list
+            - watch
+            - create
+            - delete
+          - apiGroups:
+            - ""
+            resources:
+            - pods
+            - nodes
+            - nodes/proxy
+            - services
+            - endpoints
+            - configmaps
+            - secrets
+            verbs:
+            - get
+            - list
+            - watch
+            - create
+            - update
+            - patch
+          - apiGroups:
+            - coordination.k8s.io
+            resources:
+            - leases
+            verbs:
+            - get
+            - list
+            - watch
+            - create
+            - update
+            - patch
+          - apiGroups:
+            - ""
+            resources:
+            - pods
+            verbs:
+            - patch
+          - apiGroups:
+            - apps
+            resources:
+            - deployments
+            - daemonsets
+            - statefulsets
+            - replicasets
+            verbs:
+            - get
+            - list
+            - watch
+          - apiGroups:
+            - batch
+            resources:
+            - jobs
+            verbs:
+            - get
+            - list
+            - watch
+          - apiGroups:
+            - devices.kubeedge.io
+            resources:
+            - devices
+            - devicemodels
+            verbs:
+            - get
+            - list
+            - watch
+            - create
+            - update
+            - patch
+            - delete
+          - apiGroups:
+            - rules.kubeedge.io
+            resources:
+            - rules
+            - ruleendpoints
+            verbs:
+            - get
+            - list
+            - watch
+            - create
+            - update
+            - patch
+            - delete
+          - apiGroups:
+            - reliablesyncs.kubeedge.io
+            resources:
+            - clusterobjectsyncs
+            - objectsyncs
+            verbs:
+            - get
+            - list
+            - watch
+            - create
+            - update
+            - patch
+            - delete
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Create ClusterRoleBinding for CloudCore
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: cloudcore
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cloudcore
+          subjects:
+          - kind: ServiceAccount
+            name: cloudcore
+            namespace: "{{ namespace }}"
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Create CloudCore ConfigMap
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: cloudcore-config
+            namespace: "{{ namespace }}"
+          data:
+            cloudcore.yaml: |
+              apiVersion: cloudcore.config.kubeedge.io/v1alpha1
+              kind: CloudCore
+              kubeAPIConfig:
+                kubeContentPath: /etc/kubeedge
+                kubeConfig: ""
+                masterUrl: ""
+                contentType: application/vnd.kubernetes.protobuf
+                qps: 100
+                burst: 200
+              databases:
+                sqlite:
+                  driverName: sqlite
+                  datasource: /var/lib/kubeedge/kubeedge.db
+              modules:
+                cloudHub:
+                  enable: true
+                  cloudHubPort: 10000
+                  cloudHubSecurePort: 10002
+                  websocket:
+                    enable: true
+                    port: 10000
+                    certfile: /etc/kubeedge/ca/server.crt
+                    keyfile: /etc/kubeedge/ca/server.key
+                  quic:
+                    enable: true
+                    port: 10001
+                    certfile: /etc/kubeedge/ca/server.crt
+                    keyfile: /etc/kubeedge/ca/server.key
+                eventBus:
+                  enable: true
+                  mqttServerExternal: false
+                  mqttServerPort: 1883
+                  mqttInternalPort: 11883
+                deviceController:
+                  enable: true
+                surfaceAPI:
+                  enable: false
+                dynamicController:
+                  enable: true
+                csiDriver:
+                  enable: false
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Create CloudCore Deployment
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: cloudcore
+            namespace: "{{ namespace }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: kubeedge
+                tier: cloudcore
+            template:
+              metadata:
+                labels:
+                  app: kubeedge
+                  tier: cloudcore
+              spec:
+                serviceAccountName: cloudcore
+                initContainers:
+                - name: init-certs
+                  image: alpine:latest
+                  command:
+                  - sh
+                  - -c
+                  - |
+                    mkdir -p /etc/kubeedge/ca
+                    if [ ! -f /etc/kubeedge/ca/server.crt ]; then
+                      echo "Creating self-signed certificates..."
+                      apk add --no-cache openssl
+                      openssl req -new -x509 -days 365 -nodes \
+                        -out /etc/kubeedge/ca/server.crt \
+                        -keyout /etc/kubeedge/ca/server.key \
+                        -subj "/CN=cloudcore"
+                    fi
+                  volumeMounts:
+                  - name: ca
+                    mountPath: /etc/kubeedge/ca
+                containers:
+                - name: cloudcore
+                  image: "kubeedge/cloudcore:v{{ kubeedge_version }}"
+                  imagePullPolicy: IfNotPresent
+                  ports:
+                  - containerPort: 10000
+                    name: websocket
+                    protocol: TCP
+                  - containerPort: 10001
+                    name: quic
+                    protocol: UDP
+                  - containerPort: 10002
+                    name: https
+                    protocol: TCP
+                  - containerPort: 9000
+                    name: metrics
+                    protocol: TCP
+                  env:
+                  - name: KUBEEDGE_CLOUDCORE_ENABLE_METRICS
+                    value: "true"
+                  volumeMounts:
+                  - name: config
+                    mountPath: /etc/kubeedge/config
+                  - name: ca
+                    mountPath: /etc/kubeedge/ca
+                  - name: data
+                    mountPath: /var/lib/kubeedge
+                  resources:
+                    requests:
+                      cpu: 100m
+                      memory: 128Mi
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                  livenessProbe:
+                    exec:
+                      command:
+                      - sh
+                      - -c
+                      - ps aux | grep cloudcore | grep -v grep
+                    initialDelaySeconds: 30
+                    periodSeconds: 10
+                volumes:
+                - name: config
+                  configMap:
+                    name: cloudcore-config
+                - name: ca
+                  emptyDir: {}
+                - name: data
+                  emptyDir: {}
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Create CloudCore Service (LoadBalancer)
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: cloudcore
+            namespace: "{{ namespace }}"
+          spec:
+            type: LoadBalancer
+            selector:
+              app: kubeedge
+              tier: cloudcore
+            ports:
+            - name: websocket
+              port: 10000
+              protocol: TCP
+              targetPort: 10000
+            - name: quic
+              port: 10001
+              protocol: UDP
+              targetPort: 10001
+            - name: https
+              port: 10002
+              protocol: TCP
+              targetPort: 10002
+            - name: metrics
+              port: 9000
+              protocol: TCP
+              targetPort: 9000
+        state: present
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Wait for CloudCore deployment to be ready
       shell: |
-        chmod +x /usr/local/bin/keadm
-        keadm version
-
-    - name: Create CloudCore namespace
-      shell: kubectl create namespace kubeedge || true
-
-    - name: Initialize CloudCore
-      shell: |
-        keadm init --advertise-address={{ hostvars[groups['k8s_control_plane'][0]]['ansible_host'] }} \
-                   --profile=cloud \
-                   --kube-config=/root/.kube/config
-      register: cloudcore_init
-
-    - name: Wait for CloudCore to be ready
-      shell: kubectl get pods -n kubeedge -l app=cloudcore
+        kubectl rollout status deployment/cloudcore -n {{ namespace }} --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
       register: cloudcore_status
-      until: "'cloudcore' in cloudcore_status.stdout"
-      retries: 30
-      delay: 10
       changed_when: false
-
-    - name: Get token for edge nodes
+    
+    - name: Verify CloudCore is running
       shell: |
-        keadm gettoken
-      register: edge_token
+        kubectl get pods -n {{ namespace }}
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: cloudcore_pods
       changed_when: false
-
-    - name: Generate KubeEdge edge join command
-      set_fact:
-        kubeedge_edge_command: "keadm join --cloudcore-ipport={{ hostvars[groups['k8s_control_plane'][0]]['ansible_host'] }}:10000 --edgenode-name=edge-node --token={{ edge_token.stdout }} --kubeedge-version=v{{ kubeedge_version }}"
-
-    - name: Create edge node registration script
+    
+    - name: Display CloudCore status
+      debug:
+        msg: "{{ cloudcore_pods.stdout_lines }}"
+    
+    - name: Get CloudCore logs
+      shell: |
+        kubectl logs -n {{ namespace }} -l app=kubeedge,tier=cloudcore --tail=20
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: cloudcore_logs
+      changed_when: false
+      ignore_errors: yes
+    
+    - name: Display CloudCore logs
+      debug:
+        msg: "{{ cloudcore_logs.stdout_lines }}"
+    
+    - name: Get CloudCore Service information
+      shell: |
+        kubectl get svc cloudcore -n {{ namespace }}
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: cloudcore_svc
+      changed_when: false
+    
+    - name: Display CloudCore Service
+      debug:
+        msg: "{{ cloudcore_svc.stdout_lines }}"
+    
+    - name: Create join script for edge nodes
       copy:
         content: |
           #!/bin/bash
           # KubeEdge Edge Node Join Script
-          # Usage: ./join-edge-node.sh <edge-node-name>
+          # Usage: ./join-edge-node.sh <edge-node-name> <cloudcore-ip> [cloudcore-port]
           
-          EDGE_NODE_NAME=${1:-edge-node}
-          CLOUDCORE_IP="{{ hostvars[groups['k8s_control_plane'][0]]['ansible_host'] }}"
-          TOKEN="{{ edge_token.stdout }}"
-          KUBEEDGE_VERSION="v{{ kubeedge_version }}"
+          set -e
           
-          echo "Joining edge node: $EDGE_NODE_NAME"
-          echo "CloudCore IP: $CLOUDCORE_IP"
+          EDGE_NODE_NAME="${1:-edge-node-1}"
+          CLOUDCORE_IP="${2:-localhost}"
+          CLOUDCORE_PORT="${3:-10000}"
+          KUBEEDGE_VERSION="{{ kubeedge_version }}"
           
-          # Download and setup edge node
-          keadm join \
-            --cloudcore-ipport=$CLOUDCORE_IP:10000 \
+          echo "=== Joining edge node: $EDGE_NODE_NAME ==="
+          echo "CloudCore: $CLOUDCORE_IP:$CLOUDCORE_PORT"
+          echo "KubeEdge Version: $KUBEEDGE_VERSION"
+          echo ""
+          
+          # 1. Install keadm on edge node
+          echo "[1/3] Installing keadm..."
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "aarch64" ]; then
+            ARCH="arm64"
+          elif [ "$ARCH" = "x86_64" ]; then
+            ARCH="amd64"
+          fi
+          
+          curl -sk https://github.com/kubeedge/kubeedge/releases/download/v${KUBEEDGE_VERSION}/keadm-v${KUBEEDGE_VERSION}-linux-${ARCH} \
+            -o /usr/local/bin/keadm 2>/dev/null || {
+            echo "Failed to download keadm for $ARCH"
+            exit 1
+          }
+          
+          chmod +x /usr/local/bin/keadm
+          keadm --version
+          
+          # 2. Join edge node
+          echo "[2/3] Joining edge node to CloudCore..."
+          keadm join --cloudcore-ipport=$CLOUDCORE_IP:$CLOUDCORE_PORT \
             --edgenode-name=$EDGE_NODE_NAME \
-            --token=$TOKEN \
-            --kubeedge-version=$KUBEEDGE_VERSION
-        dest: /root/join-edge-node.sh
+            --kubeedge-version=v${KUBEEDGE_VERSION}
+          
+          # 3. Verify
+          echo "[3/3] Verifying edge node setup..."
+          sleep 5
+          
+          if systemctl is-active --quiet edgecore; then
+            echo ""
+            echo "=== Edge node joined successfully! ==="
+            echo "Edge node name: $EDGE_NODE_NAME"
+            echo "EdgeCore status: running"
+            echo ""
+            echo "On control plane, verify with:"
+            echo "  kubectl get nodes -o wide | grep $EDGE_NODE_NAME"
+          else
+            echo "Warning: EdgeCore may not have started yet. Check status:"
+            echo "  systemctl status edgecore"
+          fi
+        dest: /tmp/join-edge-node.sh
         mode: '0755'
-
-    - name: Deploy KubeEdge monitoring
-      shell: |
-        kubectl apply -f https://raw.githubusercontent.com/kubeedge/kubeedge/master/hack/k8s-scripts/kubeedge-metrics.yaml
-      ignore_errors: yes
-
-    - name: Verify CloudCore status
-      shell: |
-        kubectl logs -n kubeedge -l app=cloudcore | tail -20
-      register: cloudcore_logs
-      changed_when: false
-
-    - name: Show KubeEdge status
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+    
+    - name: Summary
       debug:
         msg: |
-          KubeEdge CloudCore has been deployed successfully!
+          KubeEdge CloudCore deployment complete!
           
-          Edge Node Join Command:
-          {{ kubeedge_edge_command }}
+          Namespace: {{ namespace }}
+          Version: v{{ kubeedge_version }}
           
-          CloudCore Logs:
-          {{ cloudcore_logs.stdout }}
+          CloudCore Details:
+          - WebSocket: port 10000 (TCP)
+          - QUIC: port 10001 (UDP)
+          - HTTPS: port 10002 (TCP)
+          - Metrics: port 9000 (TCP)
+          
+          To join an edge node, use the generated script:
+            /tmp/join-edge-node.sh <node-name> <cloudcore-ip> [10000]
+          
+          Get CloudCore IP:
+            kubectl get svc cloudcore -n {{ namespace }}
+          
+          View logs:
+            kubectl logs -f deployment/cloudcore -n {{ namespace }}
+          
+          Monitor edge nodes:
+            kubectl get nodes -o wide

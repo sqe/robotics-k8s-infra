@@ -1,0 +1,251 @@
+---
+# Provision local kind cluster with feature parity to Terraform setup
+# Usage: ansible-playbook playbooks/provision-kind-cluster.yml
+# Or: ansible-playbook playbooks/provision-kind-cluster.yml -e "cluster_name=my-cluster control_plane_count=3 worker_node_count=6"
+
+- name: Provision Kind Kubernetes Cluster
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  vars:
+    cluster_name: "robotics-dev"
+    k8s_version: "v1.29.2"
+    node_image: "kindest/node:{{ k8s_version }}"
+    control_plane_count: 3
+    worker_node_count: 6
+    api_server_port: 6443
+    enable_hubble: true
+    enable_argocd: true
+    argocd_namespace: "argocd"
+    argocd_version: "7.0.0"
+    
+  tasks:
+    - name: Check kind is installed
+      shell: kind --version
+      register: kind_check
+      failed_when: kind_check.rc != 0
+      changed_when: false
+    
+    - name: Display kind version
+      debug:
+        msg: "Kind version: {{ kind_check.stdout }}"
+    
+    - name: Check if cluster already exists
+      shell: kind get clusters 2>/dev/null | grep -c "{{ cluster_name }}" || echo "0"
+      register: cluster_exists
+      changed_when: false
+    
+    - name: Delete existing cluster if present
+      shell: kind delete cluster --name {{ cluster_name }}
+      when: cluster_exists.stdout | int > 0
+      ignore_errors: yes
+    
+    - name: Create kind cluster configuration
+      copy:
+        content: |
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          name: {{ cluster_name }}
+          networking:
+            ipFamily: ipv4
+            apiServerPort: {{ api_server_port }}
+            disableDefaultCNI: true
+            podSubnet: "10.244.0.0/16"
+            serviceSubnet: "10.96.0.0/12"
+          nodes:
+          # Control plane nodes
+          {% for i in range(control_plane_count) %}
+          - role: control-plane
+            image: {{ node_image }}
+          {% if i == 0 %}
+            extraPortMappings:
+            - containerPort: 80
+              hostPort: 80
+              protocol: TCP
+            - containerPort: 443
+              hostPort: 443
+              protocol: TCP
+            - containerPort: 10000
+              hostPort: 10000
+              protocol: TCP
+            - containerPort: 10001
+              hostPort: 10001
+              protocol: UDP
+            - containerPort: 10002
+              hostPort: 10002
+              protocol: TCP
+            - containerPort: 9000
+              hostPort: 9000
+              protocol: TCP
+          {% endif %}
+          {% endfor %}
+          
+          # Worker nodes
+          {% for i in range(worker_node_count) %}
+          - role: worker
+            image: {{ node_image }}
+          {% endfor %}
+        dest: /tmp/kind-{{ cluster_name }}-config.yaml
+    
+    - name: Create kind cluster
+      shell: kind create cluster --config /tmp/kind-{{ cluster_name }}-config.yaml
+      register: cluster_creation
+    
+    - name: Wait for cluster to be ready
+      shell: |
+        kubectl cluster-info 2>&1 | grep -q "running" && echo "ready" || echo "not-ready"
+      register: cluster_ready
+      until: cluster_ready.stdout == "ready"
+      retries: 30
+      delay: 5
+      changed_when: false
+    
+    - name: Get kubeconfig path
+      shell: kind get kubeconfig-path --name {{ cluster_name }}
+      register: kubeconfig_path
+      changed_when: false
+    
+    - name: Export KUBECONFIG
+      shell: export KUBECONFIG=$(kind get kubeconfig-path --name {{ cluster_name }})
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+    
+    - name: Wait for nodes to be ready
+      shell: kubectl get nodes --no-headers 2>/dev/null | grep -c " Ready " || echo "0"
+      register: ready_nodes
+      until: ready_nodes.stdout | int >= (control_plane_count + worker_node_count)
+      retries: 30
+      delay: 5
+      changed_when: false
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+    
+    - name: Label control plane nodes
+      shell: |
+        kubectl label nodes {{ cluster_name }}-control-plane node-role.kubernetes.io/control-plane- \
+          node-role.kubernetes.io/master- --overwrite 2>/dev/null || true
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+      changed_when: false
+    
+    - name: Install CNI - Cilium
+      block:
+        - name: Add Cilium Helm repo
+          shell: |
+            helm repo add cilium https://helm.cilium.io
+            helm repo update
+        
+        - name: Install Cilium
+          shell: |
+            helm install cilium cilium/cilium \
+              --namespace kube-system \
+              --set kubeProxyReplacement=partial \
+              --set hostServices.enabled=false \
+              --set externalIPs.enabled=true \
+              --set nodePort.enabled=true \
+              --set image.pullPolicy=IfNotPresent \
+              --timeout 5m
+          environment:
+            KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+    
+    - name: Wait for Cilium to be ready
+      shell: |
+        kubectl rollout status daemonset/cilium -n kube-system --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+      register: cilium_status
+      changed_when: false
+    
+    - name: Install Cilium Hubble for observability
+      block:
+        - name: Install Cilium Hubble (relay)
+          shell: |
+            helm install cilium-hubble cilium/cilium \
+              --namespace kube-system \
+              --set hubble.relay.enabled=true \
+              --set hubble.ui.enabled=true \
+              --timeout 5m
+          environment:
+            KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+          ignore_errors: yes
+      when: enable_hubble
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+    
+    - name: Install metrics-server
+      shell: |
+        kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+      changed_when: false
+    
+    - name: Wait for metrics-server to be ready
+      shell: |
+        kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+      register: metrics_status
+      changed_when: false
+      ignore_errors: yes
+    
+    - name: Verify cluster status
+      shell: |
+        echo "Cluster: {{ cluster_name }}"
+        echo "Nodes:"
+        kubectl get nodes -o wide
+        echo ""
+        echo "CNI Status:"
+        kubectl get pods -n kube-system | grep cilium
+        echo ""
+        echo "Kubeconfig: {{ kubeconfig_path.stdout }}"
+      register: cluster_status
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path.stdout }}"
+    
+    - name: Display cluster information
+      debug:
+        msg: "{{ cluster_status.stdout_lines }}"
+    
+    - name: Create cluster info file
+      copy:
+        content: |
+          CLUSTER_NAME={{ cluster_name }}
+          K8S_VERSION={{ k8s_version }}
+          CONTROL_PLANE_COUNT={{ control_plane_count }}
+          WORKER_NODE_COUNT={{ worker_node_count }}
+          KUBECONFIG={{ kubeconfig_path.stdout }}
+          CLUSTER_READY=true
+          ENABLE_HUBBLE={{ enable_hubble }}
+          ENABLE_ARGOCD={{ enable_argocd }}
+        dest: /tmp/kind-{{ cluster_name }}-info.env
+    
+    - name: Summary
+      debug:
+        msg: |
+          Kind cluster provisioned successfully!
+          
+          Cluster Name: {{ cluster_name }}
+          Nodes: {{ control_plane_count }} control plane + {{ worker_node_count }} workers
+          Kubernetes: {{ k8s_version }}
+          CNI: Cilium
+          Hubble: {{ 'enabled' if enable_hubble else 'disabled' }}
+          
+          Kubeconfig: {{ kubeconfig_path.stdout }}
+          
+          Port Mappings (on control plane):
+          - 80 (HTTP)
+          - 443 (HTTPS)
+          - 10000 (KubeEdge WebSocket)
+          - 10001 (KubeEdge QUIC)
+          - 10002 (KubeEdge HTTPS)
+          - 9000 (Metrics)
+          
+          Next steps:
+          1. ansible-playbook playbooks/deploy-kubeedge.yml
+          2. ansible-playbook playbooks/deploy-ros2.yml
+          
+          Or run all at once:
+          ansible-playbook playbooks/site.yml
