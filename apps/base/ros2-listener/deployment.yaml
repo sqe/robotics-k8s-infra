@@ -16,8 +16,6 @@ spec:
         app: ros2-listener
     spec:
       dnsPolicy: ClusterFirst
-      nodeSelector:
-        kubernetes.io/hostname: robotics-dev-worker4
       initContainers:
       - name: wait-discovery-server
         image: busybox:latest
@@ -69,15 +67,3 @@ spec:
           failureThreshold: 3
       
       volumes: []
-      
-      affinity:
-        # Force listener and talker on same node for ROS 2 discovery
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchExpressions:
-              - key: app
-                operator: In
-                values:
-                - ros2-talker
-            topologyKey: kubernetes.io/hostname
