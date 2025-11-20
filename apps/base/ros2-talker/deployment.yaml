@@ -16,8 +16,6 @@ spec:
         app: ros2-talker
     spec:
       dnsPolicy: ClusterFirst
-      nodeSelector:
-        kubernetes.io/hostname: robotics-dev-worker4
       containers:
       - name: talker
         image: arm64v8/ros:humble
@@ -92,14 +90,3 @@ spec:
           failureThreshold: 3
       
       volumes: []
-      
-      affinity:
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchExpressions:
-              - key: app
-                operator: In
-                values:
-                - ros2-listener
-            topologyKey: kubernetes.io/hostname
