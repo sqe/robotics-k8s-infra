@@ -4,13 +4,7 @@ kind: Kustomization
 namespace: default
 
 resources:
-  - base/
-  - ros2-discovery/
-  - ros2-fastdds/
-  - ros2-pubsub/
-  - ros2-combined/
-  - ros2-distributed-listener/
-  - applications/
-
-commonLabels:
-  app.kubernetes.io/managed-by: argocd
+  - base/fastdds-discovery-server/
+  - base/ros2-talker/
+  - base/ros2-listener/
+  - base/ros2-listener-distributed/
