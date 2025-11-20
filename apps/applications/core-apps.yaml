@@ -17,13 +17,14 @@ spec:
         prometheus:
           prometheusSpec:
             retention: 30d
-            storageSpec:
-              volumeClaimTemplate:
-                spec:
-                  accessModes: ["ReadWriteOnce"]
-                  resources:
-                    requests:
-                      storage: 10Gi
+            # Disable persistent storage for local development
+            # storageSpec:
+            #   volumeClaimTemplate:
+            #     spec:
+            #       accessModes: ["ReadWriteOnce"]
+            #       resources:
+            #         requests:
+            #           storage: 10Gi
         grafana:
           enabled: true
           adminPassword: admin

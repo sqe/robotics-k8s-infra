@@ -57,6 +57,7 @@ kubectl get pods -A
 |----------|---------|-----------|
 | [QUICKSTART.md](./QUICKSTART.md) | 30-minute setup guide | 10 min |
 | [ROBOTICS_DEPLOYMENT.md](./ROBOTICS_DEPLOYMENT.md) | Complete deployment guide | 30 min |
+| [KUBEEDGE_GUIDE.md](./KUBEEDGE_GUIDE.md) | Edge computing & KubeEdge setup | 20 min |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System design & architecture | 20 min |
 | [IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md) | What was built | 15 min |
 
@@ -188,11 +189,14 @@ make deploy         # Complete end-to-end deployment
 - ✅ Service discovery
 
 ### KubeEdge
-- ✅ CloudCore deployment
-- ✅ Edge node registration
-- ✅ Cloud-edge communication
-- ✅ Device synchronization
-- ✅ MQTT support
+- ✅ CloudCore deployment (WebSocket, QUIC, HTTPS tunnels)
+- ✅ Edge node registration and auto-discovery
+- ✅ Cloud-edge bidirectional communication
+- ✅ Device synchronization via MQTT
+- ✅ EdgeMesh for service discovery
+- ✅ Edge node simulation for testing
+- ✅ Multi-domain ROS 2 support
+- ✅ Offline capability with local caching
 
 ### ROS 2
 - ✅ DDS-enabled pods
@@ -304,16 +308,37 @@ terraform apply -var="worker_node_count=5"
 kubectl scale deployment ros2-node -n ros2-workloads --replicas=5
 ```
 
+### KubeEdge Management
+```bash
+# Deploy CloudCore
+cd infra/modules/kubeedge-gateway
+bash deploy-kubeedge.sh
+
+# Check CloudCore status
+python3 edge-node-manager.py status
+
+# Simulate an edge node (for testing)
+bash simulate-edge-node.sh robot-edge-01 10.96.77.2 10000
+
+# Join real edge node
+keadm join --cloudcore-ipport=<cloud-ip>:10000 \
+  --edgenode-name=my-robot \
+  --kubeedge-version=v1.15.0
+```
+
 ### Register Edge Node
 ```bash
-# Get token from CloudCore
-TOKEN=$(kubectl exec -n kubeedge -it pod/cloudcore-xxx -- keadm gettoken)
+# List edge nodes
+kubectl get nodes -o wide | grep -i edge
 
-# On edge device
-keadm join \
-  --cloudcore-ipport=<cloud-ip>:10000 \
-  --edgenode-name=my-edge-device \
-  --token=$TOKEN
+# Deploy ROS 2 on edge node
+python3 infra/modules/kubeedge-gateway/edge-node-manager.py deploy-ros2 \
+  --app-name ros2-talker \
+  --image arm64v8/ros:humble \
+  --domain-id 42 \
+  --output talker-edge.yaml
+
+kubectl apply -f talker-edge.yaml
 ```
 
 ### Cleanup

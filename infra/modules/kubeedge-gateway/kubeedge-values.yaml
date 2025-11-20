@@ -1,0 +1,69 @@
+# KubeEdge CloudCore Helm Values
+# Based on: https://github.com/kubeedge/kubeedge
+
+cloudcore:
+  enabled: true
+  image:
+    repository: kubeedge/cloudcore
+    tag: "1.15.0"
+    pullPolicy: IfNotPresent
+  
+  replicaCount: 1
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  
+  config:
+    modules:
+      cloudHub:
+        enable: true
+        cloudHubPort: 10000
+        cloudHubSecurePort: 10002
+        websocket:
+          enable: true
+          port: 10000
+        quic:
+          enable: true
+          port: 10001
+      eventBus:
+        enable: true
+        mqttServerExternal: false
+        mqttServerPort: 1883
+      deviceController:
+        enable: true
+      dynamicController:
+        enable: true
+      surfaceAPI:
+        enable: false
+
+service:
+  type: LoadBalancer
+  ports:
+    websocket: 10000
+    quic: 10001
+    https: 10002
+    metrics: 9000
+
+edgemesh:
+  enabled: true
+  version: "1.12.0"
+  
+metrics:
+  enabled: true
+  port: 9000
+
+# For edge node auto-registration
+edgeNodeAuth:
+  enabled: true
+  tokenExpire: 8760h  # 1 year
+
+# Persistence (optional)
+persistence:
+  enabled: false
+  # storageClassName: standard
+  # size: 10Gi

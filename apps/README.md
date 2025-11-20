@@ -31,7 +31,7 @@ apps/
 
 ```bash
 # Register the app repo (example using GitHub)
-argocd repo add https://github.com/your-org/tf.git --username <username> --password <token>
+argocd repo add https://github.com/sqe/robotics-k8s-infra.git --username <username> --password <token>
 
 # Create ArgoCD Application to sync apps
 kubectl apply -f apps/applications/base-apps.yaml
