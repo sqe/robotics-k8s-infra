@@ -54,6 +54,9 @@ module "argocd" {
   server_replicas         = 1
   repo_server_replicas    = 1
   controller_replicas     = 1
+  github_repo_url         = var.github_repo_url
+  github_token            = var.github_token
+  create_example_app      = var.create_example_app
 
   depends_on = [module.kind_cluster]
 }

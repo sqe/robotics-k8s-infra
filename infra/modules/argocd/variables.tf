@@ -58,3 +58,22 @@ variable "controller_replicas" {
   type        = number
   default     = 1
 }
+
+variable "github_repo_url" {
+  description = "GitHub repository URL for ArgoCD to sync from"
+  type        = string
+  default     = ""
+}
+
+variable "github_token" {
+  description = "GitHub Personal Access Token (read from GITHUB_TOKEN env var)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "create_example_app" {
+  description = "Create an example ArgoCD Application to sync from GitHub"
+  type        = bool
+  default     = false
+}

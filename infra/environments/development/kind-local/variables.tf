@@ -51,3 +51,22 @@ variable "argocd_domain" {
   type        = string
   default     = "localhost:8080"
 }
+
+variable "github_repo_url" {
+  description = "GitHub repository URL for ArgoCD"
+  type        = string
+  default     = ""
+}
+
+variable "github_token" {
+  description = "GitHub Personal Access Token (set via GITHUB_TOKEN env var)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "create_example_app" {
+  description = "Create example ArgoCD Application"
+  type        = bool
+  default     = false
+}
