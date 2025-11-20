@@ -21,7 +21,8 @@ if ! command -v cilium &> /dev/null; then
   rm cilium-darwin-${CLI_ARCH}.tar.gz
 fi
 
-# Install Cilium with Hubble enabled and multicast support
+# Install Cilium with Hubble enabled and Prometheus metrics
+# Note: DDS communication uses FastDDS with Cilium endpoint discovery, not multicast
 echo "Installing Cilium..."
 cilium install \
   --context "kind-$CLUSTER_NAME" \
@@ -30,7 +31,6 @@ cilium install \
   --helm-set l7Proxy=true \
   --helm-set operator.prometheus.enabled=true \
   --helm-set prometheus.enabled=true \
-  --helm-set config.multicast-enabled=true
 
 # Wait for Cilium to be ready
 echo "Waiting for Cilium to be ready..."
@@ -40,7 +40,7 @@ cilium status --context "kind-$CLUSTER_NAME" --wait
 echo "Verifying Cilium installation..."
 cilium connectivity test --context "kind-$CLUSTER_NAME"
 
-echo "Hubble and Cilium installed successfully with multicast support!"
+echo "Cilium and Hubble installed successfully!"
 echo ""
 echo "To access Hubble UI, run:"
 echo "  cilium hubble ui --context kind-$CLUSTER_NAME"

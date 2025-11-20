@@ -159,9 +159,9 @@ KubeEdge Edge Side
 
 ```
 ROS 2 Deployment
-├── DDS Middleware
-│   ├── Domain ID (multicast groups)
-│   ├── Discovery protocol
+├── DDS Middleware (FastDDS)
+│   ├── Discovery: Cilium endpoint-based unicast
+│   ├── Domain ID configuration
 │   └── Data serialization
 ├── ROS 2 Nodes (Containers)
 │   ├── Publisher nodes
@@ -170,10 +170,10 @@ ROS 2 Deployment
 │   └── Action servers
 ├── Service Discovery
 │   ├── Kubernetes DNS (*.pod.cluster.local)
-│   ├── ROS domain discovery
-│   └── Zeroconf (if needed)
+│   ├── Cilium endpoints (CEP) for peer discovery
+│   └── FastDDS discovery server (optional)
 └── Inter-Pod Communication
-    ├── DDS multicast (7400-7401)
+    ├── Cilium-routed unicast (efficient)
     ├── Kubernetes service IPs
     └── External load balancers
 ```
@@ -187,11 +187,15 @@ Publisher Pod (ros2-node-1)
     │
     ├─→ ROS 2 Publisher (topic: /sensor/camera)
     │
-    ├─→ DDS Writer
+    ├─→ FastDDS Writer
     │
-    ├─→ UDP Multicast (224.0.0.xxx:7400-7401)
+    ├─→ Cilium Endpoint Discovery
+    │   ├─→ Query Cilium Endpoint (CEP) for subscribers
+    │   └─→ Resolve subscriber IP:port
     │
-    ├─→ Kubernetes CNI (Cilium)
+    ├─→ Unicast UDP to Subscriber IP
+    │
+    ├─→ Cilium eBPF routing
     │
     ├─→ Network Interface
     │
@@ -199,11 +203,11 @@ Publisher Pod (ros2-node-1)
         │
         ├─→ Network Interface
         │
-        ├─→ Kubernetes CNI
+        ├─→ Cilium eBPF ingress
         │
         ├─→ UDP Listener
         │
-        ├─→ DDS Reader
+        ├─→ FastDDS Reader
         │
         └─→ ROS 2 Subscription (callback handler)
 ```

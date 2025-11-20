@@ -1,0 +1,93 @@
+---
+# Robotics Platform - tracks this git repo
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: robotics-platform
+  namespace: argocd
+spec:
+  project: default
+  
+  # Git source - update with your actual repo
+  source:
+    repoURL: https://github.com/sqe/robotics-k8s-infra.git
+    targetRevision: main
+    path: apps/overlays/development/robotics-platform
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  
+  # Auto-sync: Any git change auto-deploys
+  syncPolicy:
+    automated:
+      prune: true      # Delete removed resources
+      selfHeal: true   # Redeploy if manual changes detected
+    syncOptions:
+    - CreateNamespace=true
+    # Auto-prune resources (dangerous in production)
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Kube Prometheus Stack - Prometheus, Grafana, AlertManager
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: "60.0.0"
+    helm:
+      releaseName: kube-prometheus-stack
+      values: |
+        prometheus:
+          prometheusSpec:
+            retention: 30d
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 10Gi
+        grafana:
+          enabled: true
+          adminPassword: admin
+        alertmanager:
+          enabled: true
+          alertmanagerSpec:
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 10Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

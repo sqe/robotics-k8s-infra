@@ -274,10 +274,11 @@ kubectl exec -it <pod> -n ros2-workloads -- ros2 topic list
 ## Networking
 
 ### DDS Configuration
-ROS 2 uses DDS for inter-process communication:
-- **Multicast ports:** 7400, 7401 (UDP)
+ROS 2 uses FastDDS for inter-process communication:
+- **Discovery:** Cilium endpoint-based unicast (no multicast)
 - **Domain ID:** Configurable (default: 0)
-- **Network policies:** Restrict to pod CIDR
+- **Network policies:** Cilium managed via Kubernetes network policies
+- **Routing:** Efficient eBPF-based pod-to-pod routing
 
 ### Edge-Cloud Communication
 KubeEdge uses:

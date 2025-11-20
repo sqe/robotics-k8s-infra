@@ -124,25 +124,25 @@ cilium config set --revert monitoring/metrics=prometheus
 cilium config set policyEnforcement=always
 ```
 
-### ROS 2 / DDS Multicast Support
+### ROS 2 / DDS Communication
 
-Cilium supports multicast, which is critical for ROS 2 DDS discovery. The default ROS 2 multicast group is `239.255.0.1:7400`.
+ROS 2 uses DDS for inter-node communication. This deployment uses **FastDDS with Cilium endpoint discovery** instead of multicast.
 
-Check multicast configuration:
+**Why FastDDS instead of multicast?**
+- Multicast can be unreliable in some network environments
+- FastDDS provides better control over discovery and communication
+- Cilium endpoints provide efficient routing between pods
+
+For ROS 2 workloads, configure DDS to use unicast discovery:
 ```bash
-cilium multicast list
+# Verify Cilium endpoint connectivity
+kubectl get cep -A
+
+# Monitor ROS 2 traffic via Hubble
+cilium hubble observe --verdict=INGRESS --type=L7 | grep -i ros
 ```
 
-Add a multicast group (if needed):
-```bash
-cilium multicast group join -g 239.255.0.1 -n default
-```
-
-For ROS 2 workloads, Cilium automatically handles multicast forwarding across nodes. Verify with:
-```bash
-# Check multicast endpoints
-cilium hubble observe --verdict=INGRESS --type=Trace | grep -i multicast
-```
+ROS 2 pods should configure their DDS middleware to discover peers via Cilium-managed endpoints rather than UDP multicast.
 
 ---
 

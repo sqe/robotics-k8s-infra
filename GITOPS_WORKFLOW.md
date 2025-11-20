@@ -349,8 +349,11 @@ git add sealed-secret.yaml
 # Watch traffic to ROS 2 pods
 cilium hubble observe --pod default/ros2-node --follow
 
-# Check multicast discovery traffic
-cilium hubble observe --verdict=INGRESS --type=Trace | grep -i "239.255"
+# Monitor ROS 2 DDS discovery traffic (Cilium endpoint-based)
+cilium hubble observe --verdict=INGRESS --type=L7 | grep -i "ros\|dds"
+
+# Check Cilium endpoint discovery
+kubectl get cep -A
 ```
 
 ### ArgoCD Metrics

@@ -175,9 +175,9 @@ Edge Nodes (On-premises/IoT)
 
 ### ROS 2 Deployment
 ```
-DDS-Based Communication
-    - Multicast on ports 7400-7401 (UDP)
-    - Automatic node discovery
+DDS-Based Communication (FastDDS)
+    - Cilium endpoint-based discovery (unicast)
+    - Efficient pod-to-pod routing
     - Services and actions support
     - Custom middleware support
 
