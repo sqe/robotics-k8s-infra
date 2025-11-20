@@ -1,21 +1,20 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Include ROS 2 base components
-resources:
-- ../../../base/ros2-talker
-- ../../../base/ros2-listener
-- ../../../base/fastdds-discovery-server
+# Robotics platform umbrella - individual apps managed separately
+# This serves as a namespace/label aggregator only
+resources: []
 
-# Environment variables
+# Environment variables shared across platform
 configMapGenerator:
-- name: env-config
+- name: robotics-platform-config
   literals:
   - ENVIRONMENT=development
   - LOG_LEVEL=DEBUG
   - ROS_DOMAIN_ID=42
 
-# Resource constraints for development
+# Platform-wide labels
 commonLabels:
+  platform: robotics
   environment: development
-  tier: application
+  managed-by: argocd
