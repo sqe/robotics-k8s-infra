@@ -51,14 +51,14 @@ A production-grade, fully-automated infrastructure-as-code solution for deployin
 │                    Robotics Middleware                       │
 │  ┌─────────────────────────────────────────────────────────┐ │
 │  │  ROS 2 (Humble)                                         │ │
-│  │  - DDS middleware (micro-XRCE-DDS or FastDDS)          │ │
+│  │  - DDS middleware (micro-XRCE-DDS or FastDDS)           │ │
 │  │  - Node management                                      │ │
 │  │  - Service/Action discovery                             │ │
 │  └─────────────────────────────────────────────────────────┘ │
 ├──────────────────────────────────────────────────────────────┤
 │                    Infrastructure as Code                    │
 │  ┌──────────────────┬──────────────────────────────────────┐ │
-│  │    Terraform     │         Ansible                       │ │
+│  │    Terraform     │         Ansible                      │ │
 │  │  ┌────────────┐  │  ┌─────────────────────────────────┐ │ │
 │  │  │ AWS        │  │  │ - Node provisioning             │ │ │
 │  │  │ - VPC      │  │  │ - Kubernetes setup              │ │ │
@@ -160,7 +160,7 @@ KubeEdge Edge Side
 ```
 ROS 2 Deployment
 ├── DDS Middleware (FastDDS)
-│   ├── Discovery: FastDDS Discovery Server (centralized, port 11811)
+│   ├── Discovery: Cilium endpoint-based unicast
 │   ├── Domain ID configuration
 │   └── Data serialization
 ├── ROS 2 Nodes (Containers)
@@ -169,13 +169,13 @@ ROS 2 Deployment
 │   ├── Service servers
 │   └── Action servers
 ├── Service Discovery
-│   ├── FastDDS Discovery Server coordination (required)
-│   ├── ROS 2 node registration & peer discovery
-│   └── Kubernetes DNS (*.pod.cluster.local)
+│   ├── Kubernetes DNS (*.pod.cluster.local)
+│   ├── Cilium endpoints (CEP) for peer discovery
+│   └── FastDDS discovery server (optional)
 └── Inter-Pod Communication
-    ├── Direct UDP between registered peers
-    ├── Cilium eBPF routing (transparent)
-    └── Network policies enforced by Cilium
+    ├── Cilium-routed unicast (efficient)
+    ├── Kubernetes service IPs
+    └── External load balancers
 ```
 
 ## Data Flow
