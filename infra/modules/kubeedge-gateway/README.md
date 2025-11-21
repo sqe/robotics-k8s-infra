@@ -7,7 +7,7 @@ This module is designed to work **independently** from Terraform to avoid state 
 ## Quick Start
 
 ```bash
-cd /Users/sqe/interviews/tf/infra/modules/kubeedge-gateway
+cd /infra/modules/kubeedge-gateway
 
 # Deploy KubeEdge CloudCore
 bash deploy-kubeedge.sh

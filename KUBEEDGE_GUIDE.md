@@ -18,33 +18,33 @@ KubeEdge extends Kubernetes to the edge, enabling seamless cloud-edge computing 
 │    Kubernetes Control Plane          │
 │    (Cloud - kind-local or AWS)       │
 │                                      │
-│  ┌────────────────────────────────┐ │
-│  │   KubeEdge CloudCore           │ │
-│  │  ├─ CloudHub (WebSocket)       │ │
-│  │  │  ├─ Port 10000              │ │
-│  │  │  └─ Cloud-to-Edge tunnel    │ │
-│  │  │                              │ │
-│  │  ├─ QUIC (Fast lane)           │ │
-│  │  │  ├─ Port 10001              │ │
-│  │  │  └─ Optimized tunnel        │ │
-│  │  │                              │ │
-│  │  ├─ HTTPS (Secure)             │ │
-│  │  │  └─ Port 10002              │ │
-│  │  │                              │ │
-│  │  └─ EventBus (MQTT)            │ │
-│  │     ├─ Port 1883               │ │
-│  │     └─ Message broker          │ │
-│  └────────────────────────────────┘ │
+│  ┌────────────────────────────────┐  │
+│  │   KubeEdge CloudCore           │  │
+│  │  ├─ CloudHub (WebSocket)       │  │
+│  │  │  ├─ Port 10000              │  │
+│  │  │  └─ Cloud-to-Edge tunnel    │  │
+│  │  │                             │  │
+│  │  ├─ QUIC (Fast lane)           │  │
+│  │  │  ├─ Port 10001              │  │
+│  │  │  └─ Optimized tunnel        │  │
+│  │  │                             │  │
+│  │  ├─ HTTPS (Secure)             │  │
+│  │  │  └─ Port 10002              │  │
+│  │  │                             │  │
+│  │  └─ EventBus (MQTT)            │  │
+│  │     ├─ Port 1883               │  │
+│  │     └─ Message broker          │  │
+│  └────────────────────────────────┘  │
 │                                      │
 └──────────────────────────────────────┘
            ▲   ▲   ▲
        TLS WebSocket QUIC
            │   │   │
     ┌──────┴───┴───┴──────┐
-    │   Network (Internet) │
+    │  Network (Internet) │
     └──────┬───┬───┬──────┘
            │   │   │
-    ┌──────▼───▼───▼──────┐
+    ┌──────▼───▼───▼───────┐
     │  Edge Nodes (Robots) │
     │  ┌─────────────────┐ │
     │  │  EdgeCore       │ │
@@ -52,11 +52,11 @@ KubeEdge extends Kubernetes to the edge, enabling seamless cloud-edge computing 
     │  │ ├─ Run pods     │ │
     │  │ └─ Local cache  │ │
     │  │                 │ │
-    │  ├─ ROS 2 Apps    │ │
-    │  ├─ Sensors       │ │
-    │  └─ Real-time I/O │ │
+    │  ├─ ROS 2 Apps     │ │
+    │  ├─ Sensors        │ │
+    │  └─ Real-time I/O  │ │
     │  └─────────────────┘ │
-    └─────────────────────┘
+    └──────────────────────┘
 ```
 
 ## Quick Start (Local Kind Cluster)
@@ -64,7 +64,7 @@ KubeEdge extends Kubernetes to the edge, enabling seamless cloud-edge computing 
 ### 1. Deploy CloudCore
 
 ```bash
-cd /Users/sqe/interviews/tf/infra/modules/kubeedge-gateway
+cd /infra/modules/kubeedge-gateway
 
 # Deploy KubeEdge CloudCore
 bash deploy-kubeedge.sh
@@ -342,7 +342,7 @@ kubectl top pods -l node-role.kubernetes.io/edge=true
 
 ### CloudCore Settings
 
-Edit `/Users/sqe/interviews/tf/infra/modules/kubeedge-gateway/deploy-kubeedge.sh` to customize:
+Edit `/infra/modules/kubeedge-gateway/deploy-kubeedge.sh` to customize:
 
 ```yaml
 modules:

@@ -38,10 +38,10 @@ This deploys KubeEdge CloudCore independently from Terraform, allowing edge node
 
 ```bash
 # Make script executable
-chmod +x /Users/sqe/interviews/tf/infra/modules/kubeedge-gateway/deploy-kubeedge.sh
+chmod +x /infra/modules/kubeedge-gateway/deploy-kubeedge.sh
 
 # Run deployment
-/Users/sqe/interviews/tf/infra/modules/kubeedge-gateway/deploy-kubeedge.sh
+/infra/modules/kubeedge-gateway/deploy-kubeedge.sh
 ```
 
 ### 2. Get CloudCore Access Info
@@ -129,7 +129,7 @@ spec:
 ## Configuration
 
 ### CloudCore Config
-Edit `/Users/sqe/interviews/tf/infra/modules/kubeedge-gateway/kubeedge-values.yaml` to customize:
+Edit `/infra/modules/kubeedge-gateway/kubeedge-values.yaml` to customize:
 - MQTT server settings
 - Device model support
 - Metrics collection
