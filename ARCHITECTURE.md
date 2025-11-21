@@ -160,7 +160,7 @@ KubeEdge Edge Side
 ```
 ROS 2 Deployment
 ├── DDS Middleware (FastDDS)
-│   ├── Discovery: Cilium endpoint-based unicast
+│   ├── Discovery: FastDDS Discovery Server (centralized, port 11811)
 │   ├── Domain ID configuration
 │   └── Data serialization
 ├── ROS 2 Nodes (Containers)
@@ -169,13 +169,13 @@ ROS 2 Deployment
 │   ├── Service servers
 │   └── Action servers
 ├── Service Discovery
-│   ├── Kubernetes DNS (*.pod.cluster.local)
-│   ├── Cilium endpoints (CEP) for peer discovery
-│   └── FastDDS discovery server (optional)
+│   ├── FastDDS Discovery Server coordination (required)
+│   ├── ROS 2 node registration & peer discovery
+│   └── Kubernetes DNS (*.pod.cluster.local)
 └── Inter-Pod Communication
-    ├── Cilium-routed unicast (efficient)
-    ├── Kubernetes service IPs
-    └── External load balancers
+    ├── Direct UDP between registered peers
+    ├── Cilium eBPF routing (transparent)
+    └── Network policies enforced by Cilium
 ```
 
 ## Data Flow
